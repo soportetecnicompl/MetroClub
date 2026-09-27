@@ -90,6 +90,20 @@ enum SalesChannel {
   CORPORATE
 }
 
+enum PromotionType {
+  PERCENT_OFF
+  FIXED_AMOUNT_OFF
+}
+
+/// A qué boletos aplica: ALL_TICKETS = cualquier boleto MetroClub, o acotado a una
+/// película/formato/complejo específico.
+enum PromotionScope {
+  ALL_TICKETS
+  MOVIE
+  FORMAT
+  COMPLEX
+}
+
 /// Complejo de cine (sucursal)
 model Complex {
   id        String   @id @default(cuid())
@@ -107,6 +121,7 @@ model Complex {
   priceRules  PriceRule[]
   showtimes   Showtime[]
   tickets     Ticket[]
+  promotions  Promotion[]
 
   @@map("complexes")
 }
@@ -322,7 +337,8 @@ model Movie {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  showtimes Showtime[]
+  showtimes  Showtime[]
+  promotions Promotion[]
 
   @@map("movies")
 }
@@ -442,6 +458,9 @@ model Ticket {
   complexId       String
   price           Decimal      @db.Decimal(10, 2)
   discountApplied Decimal      @default(0) @db.Decimal(10, 2)
+  /// Promoción aplicada al momento de la venta (si hubo alguna) — se guarda para
+  /// trazabilidad/reportería aunque la promoción luego se desactive o cambie.
+  promotionId     String?
   channel         SalesChannel
   status          TicketStatus @default(ISSUED)
   /// Token opaco+firmado (HMAC) que codifica el QR — se verifica sin necesidad de ir a BD
@@ -459,13 +478,45 @@ model Ticket {
   seat              Seat                     @relation(fields: [seatId], references: [id])
   client            Client?                  @relation(fields: [clientId], references: [id])
   complex           Complex                  @relation(fields: [complexId], references: [id])
+  promotion         Promotion?               @relation(fields: [promotionId], references: [id])
   reassignedTo      Ticket?                  @relation("TicketReassignment", fields: [reassignedToId], references: [id])
   reassignedFrom    Ticket?                  @relation("TicketReassignment")
   reassignmentOffer TicketReassignmentOffer?
 
   @@index([showtimeId])
   @@index([clientId])
+  @@index([promotionId])
   @@map("tickets")
+}
+
+/// Descuento configurable que se aplica automáticamente en taquilla/tienda en línea.
+/// Nunca se combinan varias promociones en un mismo boleto: si más de una aplica, se
+/// usa la que otorga el mayor descuento (no hay campo de prioridad).
+model Promotion {
+  id                String         @id @default(cuid())
+  name              String
+  type              PromotionType
+  /// Porcentaje (0-100) si type=PERCENT_OFF, o monto en Lempiras si type=FIXED_AMOUNT_OFF.
+  value             Decimal        @db.Decimal(10, 2)
+  scope             PromotionScope
+  movieId           String?
+  format            TicketFormat?
+  complexId         String?
+  /// Si es true, solo aplica a clientes identificados como MetroClub (comportamiento
+  /// histórico del 10% automático); si es false, aplica a cualquier venta que cumpla el scope.
+  requiresMetroClub Boolean        @default(true)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  movie   Movie?   @relation(fields: [movieId], references: [id])
+  complex Complex? @relation(fields: [complexId], references: [id])
+  tickets Ticket[]
+
+  @@index([isActive])
+  @@map("promotions")
 }
 
 /// Cuando una función se cancela, cada boleto B2C afectado recibe un código propio para

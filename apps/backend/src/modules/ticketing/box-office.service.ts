@@ -3,16 +3,10 @@ import { randomUUID } from 'crypto';
 import { Prisma, SalesChannel } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TicketQrService } from './ticket-qr.service';
+import { PromotionsService } from './promotions.service';
 import { ConfirmSaleDto } from './dto/confirm-sale.dto';
 
 const HOLD_TTL_SECONDS = 5 * 60;
-
-/**
- * Descuento plano para clientes MetroClub identificados — PLACEHOLDER hasta que se
- * diseñe el motor real de promociones (distinto por película/formato, acumulable con
- * canje de puntos, etc. — pendiente de esa conversación de diseño aparte).
- */
-const METROCLUB_DISCOUNT_PERCENT = 10;
 
 function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -24,6 +18,7 @@ export class BoxOfficeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ticketQr: TicketQrService,
+    private readonly promotions: PromotionsService,
   ) {}
 
   /** ¿Esta función todavía puede cancelarse por no alcanzar el mínimo? Si sí, hay que
@@ -124,7 +119,7 @@ export class BoxOfficeService {
 
   /**
    * Confirma la venta: convierte las reservas HELD en boletos ISSUED. Si viene clientId,
-   * aplica el descuento MetroClub automáticamente (ver METROCLUB_DISCOUNT_PERCENT).
+   * busca la promoción más conveniente aplicable (motor de promociones) y la aplica.
    */
   async confirmSale(dto: ConfirmSaleDto) {
     const showtime = await this.prisma.showtime.findUniqueOrThrow({
@@ -152,7 +147,16 @@ export class BoxOfficeService {
     }
 
     const basePrice = Number(showtime.priceRule.price);
-    const discountApplied = client ? Number((basePrice * (METROCLUB_DISCOUNT_PERCENT / 100)).toFixed(2)) : 0;
+    const match = await this.promotions.getApplicablePromotion(
+      {
+        isMetroClub: Boolean(client),
+        movieId: showtime.movieId,
+        format: showtime.format,
+        complexId: showtime.complexId,
+      },
+      basePrice,
+    );
+    const discountApplied = match?.discountApplied ?? 0;
     const finalPrice = basePrice - discountApplied;
 
     return this.prisma.$transaction(async (tx) => {
@@ -180,6 +184,7 @@ export class BoxOfficeService {
               complexId: showtime.complexId,
               price: finalPrice,
               discountApplied,
+              promotionId: match?.promotion.id,
               channel: dto.channel,
               qrToken: this.ticketQr.sign(ticketId),
               riskAcceptedAt: dto.acceptedRisk ? now : null,

@@ -20,6 +20,7 @@ describe('BoxOfficeService', () => {
     $transaction: jest.Mock;
   };
   let ticketQr: { sign: jest.Mock; verify: jest.Mock };
+  let promotions: { getApplicablePromotion: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -31,7 +32,8 @@ describe('BoxOfficeService', () => {
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
     };
     ticketQr = { sign: jest.fn().mockReturnValue('signed-token'), verify: jest.fn() };
-    service = new BoxOfficeService(prisma as never, ticketQr as never);
+    promotions = { getApplicablePromotion: jest.fn().mockResolvedValue(null) };
+    service = new BoxOfficeService(prisma as never, ticketQr as never, promotions as never);
   });
 
   describe('holdSeat', () => {
@@ -75,7 +77,9 @@ describe('BoxOfficeService', () => {
   describe('confirmSale', () => {
     const baseShowtime = {
       id: 'showtime-1',
+      movieId: 'movie-1',
       complexId: 'complex-1',
+      format: 'D2',
       status: 'SCHEDULED',
       minSalesThreshold: null,
       minSalesDeadlineMinutesBefore: null,
@@ -98,11 +102,15 @@ describe('BoxOfficeService', () => {
       expect(ticket.discountApplied).toBe(0);
     });
 
-    it('aplica el descuento MetroClub automáticamente cuando el cliente está identificado', async () => {
+    it('aplica la promoción del motor automáticamente cuando el cliente está identificado', async () => {
       prisma.showtime.findUniqueOrThrow.mockResolvedValue(baseShowtime);
       prisma.client.findUnique.mockResolvedValue({ id: 'client-1' });
       prisma.seatHold.updateMany.mockResolvedValue({ count: 1 });
       prisma.ticket.create.mockImplementation((args) => Promise.resolve({ id: args.data.id, ...args.data }));
+      promotions.getApplicablePromotion.mockResolvedValue({
+        promotion: { id: 'promo-1' },
+        discountApplied: 10,
+      });
 
       const [ticket] = await service.confirmSale({
         showtimeId: 'showtime-1',
@@ -111,9 +119,14 @@ describe('BoxOfficeService', () => {
         channel: 'BOX_OFFICE',
       } as never);
 
-      // 10% de 100 = 10 de descuento, precio final 90 — sin ningún paso manual del cajero.
+      // El motor decidió 10 de descuento sobre 100 — sin ningún paso manual del cajero.
+      expect(promotions.getApplicablePromotion).toHaveBeenCalledWith(
+        { isMetroClub: true, movieId: 'movie-1', format: 'D2', complexId: 'complex-1' },
+        100,
+      );
       expect(ticket.discountApplied).toBe(10);
       expect(ticket.price).toBe(90);
+      expect(ticket.promotionId).toBe('promo-1');
     });
 
     it('exige aceptar el riesgo si la función está por debajo del mínimo dentro de la ventana', async () => {

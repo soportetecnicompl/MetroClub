@@ -9,6 +9,7 @@ const LINKS = [
   { href: '/staff', label: 'Staff' },
   { href: '/box-office', label: 'Taquilla' },
   { href: '/catalog', label: 'Cartelera' },
+  { href: '/promotions', label: 'Promociones' },
   { href: '/clients', label: 'Clientes' },
   { href: '/redemptions', label: 'Canjes' },
   { href: '/roi', label: 'ROI de premios' },
