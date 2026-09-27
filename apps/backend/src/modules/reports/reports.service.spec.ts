@@ -3,7 +3,7 @@ import { ReportsService } from './reports.service';
 describe('ReportsService', () => {
   let service: ReportsService;
   let prisma: {
-    client: { count: jest.Mock; findMany: jest.Mock; aggregate: jest.Mock };
+    client: { count: jest.Mock; findMany: jest.Mock; aggregate: jest.Mock; findUniqueOrThrow: jest.Mock };
     visit: { count: jest.Mock; groupBy: jest.Mock };
     redemption: { count: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock };
     reward: { findMany: jest.Mock };
@@ -13,7 +13,7 @@ describe('ReportsService', () => {
 
   beforeEach(() => {
     prisma = {
-      client: { count: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
+      client: { count: jest.fn(), findMany: jest.fn(), aggregate: jest.fn(), findUniqueOrThrow: jest.fn() },
       visit: { count: jest.fn(), groupBy: jest.fn() },
       redemption: { count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn() },
       reward: { findMany: jest.fn() },
@@ -134,6 +134,33 @@ describe('ReportsService', () => {
           where: expect.objectContaining({ lastVisitAt: expect.objectContaining({ lt: expect.any(Date), gte: expect.any(Date) }) }),
         }),
       );
+    });
+  });
+
+  describe('getClientInsights', () => {
+    it('calcula costo vs. beneficio, potencial (próximo premio) y una recomendación según el segmento', async () => {
+      prisma.client.findUniqueOrThrow.mockResolvedValue({
+        stamps: 3,
+        totalSpent: 500,
+        lastVisitAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), // 40 días -> at_risk
+        _count: { visits: 4, redemptions: 1 },
+      });
+      prisma.redemption.findMany.mockResolvedValue([{ reward: { monetaryValue: 150 } }]);
+      prisma.reward.findMany.mockResolvedValue([
+        { name: 'Combo personal gratis', stampsCost: 8 },
+        { name: 'Entrada VIP', stampsCost: 12 },
+      ]);
+
+      const result = await service.getClientInsights('client-1');
+
+      expect(result.totalSpent).toBe(500);
+      expect(result.redemptionCost).toBe(150);
+      expect(result.netValue).toBe(350); // cuánto ha generado neto, descontando lo canjeado
+      expect(result.avgSpendPerVisit).toBe(125); // 500 / 4 visitas
+      expect(result.segment).toBe('at_risk');
+      expect(result.nextReward).toEqual({ name: 'Combo personal gratis', stampsCost: 8 });
+      expect(result.stampsToNextReward).toBe(5); // le faltan 5 sellos (8 - 3)
+      expect(result.recommendation).toMatch(/recordatorio|promoción/i);
     });
   });
 

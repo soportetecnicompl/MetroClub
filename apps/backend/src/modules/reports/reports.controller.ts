@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ClientSegment, ReportsService } from './reports.service';
 
@@ -34,6 +34,11 @@ export class ReportsController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('clients/:id/insights')
+  getClientInsights(@Param('id') id: string) {
+    return this.reportsService.getClientInsights(id);
   }
 
   @Get('redemptions')

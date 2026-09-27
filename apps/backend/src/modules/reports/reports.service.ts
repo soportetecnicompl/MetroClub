@@ -50,6 +50,15 @@ function computeSegment(lastVisitAt: Date | null, now: Date): ClientSegment {
   return 'lost';
 }
 
+/** Texto accionable por segmento — qué hacer con ESTE cliente, no solo en qué grupo está. */
+const SEGMENT_RECOMMENDATIONS: Record<ClientSegment, string> = {
+  active: 'Cliente frecuente: prioriza retenerlo con un premio o beneficio exclusivo antes de que se enfríe.',
+  at_risk: 'Empezó a espaciarse — envíale ya un recordatorio o promoción puntual, todavía es fácil traerlo de vuelta.',
+  dormant: 'Lleva 2-3 meses sin venir — necesita una campaña de reactivación concreta (descuento u oferta por tiempo limitado).',
+  lost: 'Prácticamente perdido — solo una oferta agresiva (2x1, descuento fuerte) lo trae de vuelta; evalúa si el costo vale la pena.',
+  never: 'Se enroló pero nunca volvió — el enganche inicial falló; una oferta de bienvenida con vencimiento corto puede activarlo.',
+};
+
 export function segmentWhere(segment: ClientSegment, now: Date): Prisma.ClientWhereInput {
   const before = (days: number) => new Date(now.getTime() - days * DAY_MS);
   switch (segment) {
@@ -254,6 +263,52 @@ export class ReportsService {
       clientsBySegment,
       redemptionRate,
       lifetimeRevenue: Number(lifetimeRevenue._sum.totalSpent ?? 0),
+    };
+  }
+
+  /**
+   * Ficha de "costo vs. beneficio + qué hacer" de un cliente — lo que se muestra en su
+   * pantalla de detalle: cuánto ha generado vs. cuánto ha costado en premios, qué tan
+   * cerca está de su próximo premio (potencial), y una recomendación concreta de acción
+   * según su segmento de recencia.
+   */
+  async getClientInsights(clientId: string) {
+    const now = new Date();
+    const client = await this.prisma.client.findUniqueOrThrow({
+      where: { id: clientId },
+      select: {
+        stamps: true,
+        totalSpent: true,
+        lastVisitAt: true,
+        _count: { select: { visits: true, redemptions: true } },
+      },
+    });
+
+    const [redemptionCost, rewards] = await Promise.all([
+      sumRedemptionCost(this.prisma, { clientId }),
+      this.prisma.reward.findMany({
+        where: { isActive: true, stampsCost: { not: null } },
+        orderBy: { stampsCost: 'asc' },
+        select: { name: true, stampsCost: true },
+      }),
+    ]);
+
+    const segment = computeSegment(client.lastVisitAt, now);
+    const totalSpent = Number(client.totalSpent);
+    const nextReward = rewards.find((r) => (r.stampsCost ?? 0) > client.stamps) ?? null;
+
+    return {
+      segment,
+      totalSpent,
+      redemptionCost,
+      netValue: totalSpent - redemptionCost,
+      avgSpendPerVisit: client._count.visits > 0 ? Number((totalSpent / client._count.visits).toFixed(2)) : 0,
+      daysSinceLastVisit: client.lastVisitAt ? daysSince(client.lastVisitAt, now) : null,
+      visits: client._count.visits,
+      redemptions: client._count.redemptions,
+      nextReward: nextReward ? { name: nextReward.name, stampsCost: nextReward.stampsCost } : null,
+      stampsToNextReward: nextReward ? (nextReward.stampsCost ?? 0) - client.stamps : null,
+      recommendation: SEGMENT_RECOMMENDATIONS[segment],
     };
   }
 

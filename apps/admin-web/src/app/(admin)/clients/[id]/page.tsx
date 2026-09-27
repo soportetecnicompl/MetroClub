@@ -40,11 +40,46 @@ interface History {
   redemptions: Redemption[];
 }
 
+type Segment = 'active' | 'at_risk' | 'dormant' | 'lost' | 'never';
+
+interface Insights {
+  segment: Segment;
+  totalSpent: number;
+  redemptionCost: number;
+  netValue: number;
+  avgSpendPerVisit: number;
+  daysSinceLastVisit: number | null;
+  nextReward: { name: string; stampsCost: number | null } | null;
+  stampsToNextReward: number | null;
+  recommendation: string;
+}
+
+interface WhatsappTemplate {
+  id: string;
+  name: string;
+  type: string;
+  isActive: boolean;
+}
+
+const SEGMENT_LABELS: Record<Segment, { label: string; badge: { background: string; color: string } }> = {
+  active: { label: 'Activo', badge: { background: 'var(--success-10)', color: 'var(--success-150)' } },
+  at_risk: { label: 'En riesgo', badge: { background: '#fff3cd', color: '#8a6d1a' } },
+  dormant: { label: 'Dormido', badge: { background: '#ffe0cc', color: '#a04a00' } },
+  lost: { label: 'Perdido', badge: { background: '#fddede', color: '#a01e1e' } },
+  never: { label: 'Nunca ha visitado', badge: { background: 'var(--black-10)', color: 'var(--black-40)' } },
+};
+
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const [client, setClient] = useState<Client | null>(null);
   const [history, setHistory] = useState<History | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [templates, setTemplates] = useState<WhatsappTemplate[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [sending, setSending] = useState(false);
+  const [campaignMessage, setCampaignMessage] = useState<string | null>(null);
 
   useEffect(() => {
     authFetch<Client>(`/clients/${params.id}`)
@@ -53,7 +88,32 @@ export default function ClientDetailPage() {
     authFetch<History>(`/clients/${params.id}/history`)
       .then(setHistory)
       .catch((err) => setError(describeError(err, 'No se pudo cargar el historial del cliente')));
+    authFetch<Insights>(`/reports/clients/${params.id}/insights`)
+      .then(setInsights)
+      .catch((err) => setError(describeError(err, 'No se pudo cargar el análisis del cliente')));
+    authFetch<WhatsappTemplate[]>('/whatsapp/templates').then(setTemplates).catch(() => undefined);
   }, [params.id]);
+
+  const handleSendCampaign = async () => {
+    if (!templateName) return;
+    setSending(true);
+    setCampaignMessage(null);
+    try {
+      const res = await authFetch<{ queued: boolean }>('/campaigns/send-to-client', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: params.id, templateName }),
+      });
+      setCampaignMessage(
+        res.queued
+          ? `Mensaje con la plantilla "${templateName}" encolado — n8n/Chatwoot lo despacha por WhatsApp.`
+          : 'No se pudo encolar: la plantilla no existe o está inactiva.',
+      );
+    } catch (err) {
+      setCampaignMessage(describeError(err, 'No se pudo enviar el mensaje'));
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -103,6 +163,84 @@ export default function ClientDetailPage() {
       >
         Ver tarjeta digital del cliente ↗
       </a>
+
+      {insights && (
+        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <h2 style={{ margin: 0 }}>Costo vs. beneficio y potencial</h2>
+            <span className="badge" style={SEGMENT_LABELS[insights.segment].badge}>
+              {SEGMENT_LABELS[insights.segment].label}
+              {insights.daysSinceLastVisit != null ? ` · ${insights.daysSinceLastVisit} días sin visitar` : ''}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kicker" style={{ color: 'var(--black-60)' }}>Ha generado (L.)</span>
+              <span style={{ fontSize: 20, fontWeight: 600 }}>L. {insights.totalSpent.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kicker" style={{ color: 'var(--black-60)' }}>Le ha costado en premios (L.)</span>
+              <span style={{ fontSize: 20, fontWeight: 600 }}>L. {insights.redemptionCost.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kicker" style={{ color: 'var(--black-60)' }}>Beneficio neto (L.)</span>
+              <span
+                style={{
+                  fontSize: 20,
+                  fontWeight: 600,
+                  color: insights.netValue >= 0 ? 'var(--success-150)' : 'var(--error-150, #a01e1e)',
+                }}
+              >
+                L. {insights.netValue.toFixed(2)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kicker" style={{ color: 'var(--black-60)' }}>Gasto promedio / visita</span>
+              <span style={{ fontSize: 20, fontWeight: 600 }}>L. {insights.avgSpendPerVisit.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kicker" style={{ color: 'var(--black-60)' }}>Potencial (próximo premio)</span>
+              <span style={{ fontSize: 20, fontWeight: 600 }}>
+                {insights.nextReward
+                  ? `${insights.stampsToNextReward} sello${insights.stampsToNextReward === 1 ? '' : 's'} para "${insights.nextReward.name}"`
+                  : '¡Ya desbloqueó todo!'}
+              </span>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              padding: 14,
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--black-0)',
+            }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Cómo atacarlo / hacer que regrese</span>
+            <span style={{ fontSize: 13, color: 'var(--black-60)' }}>{insights.recommendation}</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
+              <option value="">Elige una plantilla activa…</option>
+              {templates
+                .filter((t) => t.isActive)
+                .map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name} ({t.type})
+                  </option>
+                ))}
+            </select>
+            <button className="btn-primary" disabled={!templateName || sending} onClick={handleSendCampaign}>
+              {sending ? 'Enviando…' : 'Enviarle este mensaje por WhatsApp'}
+            </button>
+          </div>
+          {campaignMessage && <p style={{ fontSize: 13 }}>{campaignMessage}</p>}
+        </section>
+      )}
 
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>Historial de visitas</h2>

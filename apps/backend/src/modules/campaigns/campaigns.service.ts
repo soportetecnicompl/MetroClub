@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CampaignStatus, Prisma, WhatsAppMessageType } from '@prisma/client';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { SendSegmentCampaignDto } from './dto/send-segment-campaign.dto';
+import { SendClientCampaignDto } from './dto/send-client-campaign.dto';
 import { segmentWhere } from '../reports/reports.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 
@@ -59,5 +60,11 @@ export class CampaignsService {
     });
 
     return { campaign, matched: clients.length, queued };
+  }
+
+  /** El CTA de la pantalla de detalle de un cliente: una sola plantilla, un solo destinatario. */
+  async sendToClient(dto: SendClientCampaignDto) {
+    const message = await this.whatsappService.queueMessage(dto.clientId, WhatsAppMessageType.CAMPAIGN, dto.templateName);
+    return { queued: message !== null };
   }
 }

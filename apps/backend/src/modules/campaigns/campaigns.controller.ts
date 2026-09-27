@@ -5,6 +5,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { SendSegmentCampaignDto } from './dto/send-segment-campaign.dto';
+import { SendClientCampaignDto } from './dto/send-client-campaign.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('campaigns')
@@ -26,5 +27,11 @@ export class CampaignsController {
   @Roles('SUPER_ADMIN', 'CENTRAL_ADMIN', 'COMPLEX_ADMIN')
   sendToSegment(@Body() dto: SendSegmentCampaignDto) {
     return this.campaignsService.sendToSegment(dto);
+  }
+
+  @Post('send-to-client')
+  @Roles('SUPER_ADMIN', 'CENTRAL_ADMIN', 'COMPLEX_ADMIN')
+  sendToClient(@Body() dto: SendClientCampaignDto) {
+    return this.campaignsService.sendToClient(dto);
   }
 }
