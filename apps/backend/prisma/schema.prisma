@@ -177,6 +177,9 @@ model Reward {
   description   String?
   stampsCost    Int?
   pointsCost    Int?
+  /// Valor en Lempiras del premio (p. ej. el precio de la entrada) — usado para decirle al
+  /// cliente cuánto se ahorró al canjearlo (notificación de Wallet). Opcional.
+  monetaryValue Decimal?     @db.Decimal(10, 2)
   isActive      Boolean      @default(true)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt

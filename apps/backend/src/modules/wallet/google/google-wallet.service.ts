@@ -233,11 +233,16 @@ export class GoogleWalletService {
   }
 
   /** Avisa al cliente que su canje se procesó — sin esto no hay forma de saber si el canje aplicó (RF-10). */
-  async notifyRedemption(client: Pick<Client, 'id' | 'stamps' | 'points'>, rewardName: string): Promise<void> {
+  async notifyRedemption(
+    client: Pick<Client, 'id' | 'stamps' | 'points'>,
+    rewardName: string,
+    monetaryValue: number | null = null,
+  ): Promise<void> {
+    const savings = monetaryValue ? ` (¡ahorraste L. ${monetaryValue.toFixed(2)}!)` : '';
     await this.sendNotification(
       client.id,
-      '¡Premio canjeado!',
-      `Canjeaste: ${rewardName}. Sellos: ${client.stamps} · Puntos: ${client.points}.`,
+      '¡Premio canjeado! 🎉',
+      `Canjeaste: ${rewardName}${savings}. Sellos: ${client.stamps} · Puntos: ${client.points}.`,
     );
   }
 

@@ -18,6 +18,7 @@ interface Reward {
   description: string | null;
   stampsCost: number | null;
   pointsCost: number | null;
+  monetaryValue: string | null;
   isActive: boolean;
 }
 
@@ -27,7 +28,13 @@ export default function LoyaltyPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [ruleForm, setRuleForm] = useState({ name: '', stampsPerVisit: 1, pointsPerCurrency: 1, currencyUnit: 10 });
-  const [rewardForm, setRewardForm] = useState({ name: '', description: '', stampsCost: '', pointsCost: '' });
+  const [rewardForm, setRewardForm] = useState({
+    name: '',
+    description: '',
+    stampsCost: '',
+    pointsCost: '',
+    monetaryValue: '',
+  });
 
   const loadRules = () => authFetch<LoyaltyRule[]>('/loyalty/rules').then(setRules).catch(() => undefined);
   const loadRewards = () => authFetch<Reward[]>('/loyalty/rewards').then(setRewards).catch(() => undefined);
@@ -60,9 +67,10 @@ export default function LoyaltyPage() {
           description: rewardForm.description || undefined,
           stampsCost: rewardForm.stampsCost ? Number(rewardForm.stampsCost) : undefined,
           pointsCost: rewardForm.pointsCost ? Number(rewardForm.pointsCost) : undefined,
+          monetaryValue: rewardForm.monetaryValue ? Number(rewardForm.monetaryValue) : undefined,
         }),
       });
-      setRewardForm({ name: '', description: '', stampsCost: '', pointsCost: '' });
+      setRewardForm({ name: '', description: '', stampsCost: '', pointsCost: '', monetaryValue: '' });
       loadRewards();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo crear el premio');
@@ -176,6 +184,14 @@ export default function LoyaltyPage() {
             value={rewardForm.pointsCost}
             onChange={(e) => setRewardForm({ ...rewardForm, pointsCost: e.target.value })}
           />
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="Valor en L. (opcional, para mostrar el ahorro)"
+            value={rewardForm.monetaryValue}
+            onChange={(e) => setRewardForm({ ...rewardForm, monetaryValue: e.target.value })}
+          />
           <button type="submit" className="btn-primary">
             Crear premio
           </button>
@@ -186,6 +202,7 @@ export default function LoyaltyPage() {
               <th>Nombre</th>
               <th>Costo sellos</th>
               <th>Costo puntos</th>
+              <th>Valor</th>
             </tr>
           </thead>
           <tbody>
@@ -194,6 +211,7 @@ export default function LoyaltyPage() {
                 <td>{reward.name}</td>
                 <td>{reward.stampsCost ?? '—'}</td>
                 <td>{reward.pointsCost ?? '—'}</td>
+                <td>{reward.monetaryValue ? `L. ${Number(reward.monetaryValue).toFixed(2)}` : '—'}</td>
               </tr>
             ))}
           </tbody>

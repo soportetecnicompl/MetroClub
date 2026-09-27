@@ -86,11 +86,11 @@ export class WalletService {
   }
 
   /** RF-10: refleja en Wallet el canje de un premio (sellos/puntos descontados) y avisa al cliente. */
-  async pushRedemptionUpdate(clientId: string, rewardName: string) {
+  async pushRedemptionUpdate(clientId: string, rewardName: string, monetaryValue: number | null = null) {
     const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId } });
 
     await this.googleWalletService.upsertLoyaltyObject(client);
-    await this.googleWalletService.notifyRedemption(client, rewardName);
+    await this.googleWalletService.notifyRedemption(client, rewardName, monetaryValue);
 
     await this.prisma.walletPass.updateMany({ where: { clientId }, data: { lastPushedAt: new Date() } });
   }

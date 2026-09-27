@@ -51,7 +51,7 @@ describe('LoyaltyService', () => {
     it('canjea un premio cuando el cliente tiene sellos suficientes (RF-10)', async () => {
       const tx = buildTx(
         { stamps: 5, points: 0 },
-        { id: 'reward-1', name: 'Entrada 2D gratis', stampsCost: 5, pointsCost: null },
+        { id: 'reward-1', name: 'Entrada 2D gratis', stampsCost: 5, pointsCost: null, monetaryValue: 150 },
       );
       prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
@@ -63,8 +63,8 @@ describe('LoyaltyService', () => {
       });
       expect(result).toEqual({ id: 'redemption-1' });
       // Sin esto el pase de Wallet se queda con los sellos/puntos viejos y el cliente
-      // no tiene forma de saber si el canje se aplicó.
-      expect(walletService.pushRedemptionUpdate).toHaveBeenCalledWith('client-1', 'Entrada 2D gratis');
+      // no tiene forma de saber si el canje se aplicó (ni cuánto se ahorró).
+      expect(walletService.pushRedemptionUpdate).toHaveBeenCalledWith('client-1', 'Entrada 2D gratis', 150);
     });
 
     it('rechaza el canje si el cliente no tiene sellos suficientes', async () => {

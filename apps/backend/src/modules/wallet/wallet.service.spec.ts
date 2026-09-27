@@ -129,10 +129,10 @@ describe('WalletService', () => {
     it('actualiza el loyaltyObject y notifica el canje al cliente (RF-10)', async () => {
       prisma.walletPass.updateMany.mockResolvedValue({ count: 2 });
 
-      await service.pushRedemptionUpdate('client-1', 'Entrada 2D gratis');
+      await service.pushRedemptionUpdate('client-1', 'Entrada 2D gratis', 150);
 
       expect(googleWalletService.upsertLoyaltyObject).toHaveBeenCalledWith(client);
-      expect(googleWalletService.notifyRedemption).toHaveBeenCalledWith(client, 'Entrada 2D gratis');
+      expect(googleWalletService.notifyRedemption).toHaveBeenCalledWith(client, 'Entrada 2D gratis', 150);
       expect(prisma.walletPass.updateMany).toHaveBeenCalledWith({
         where: { clientId: 'client-1' },
         data: { lastPushedAt: expect.any(Date) },

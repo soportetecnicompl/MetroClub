@@ -108,11 +108,15 @@ export class LoyaltyService {
         },
       });
 
-      return { redemption, rewardName: reward.name };
-    }).then(async ({ redemption, rewardName }) => {
+      return {
+        redemption,
+        rewardName: reward.name,
+        monetaryValue: reward.monetaryValue ? Number(reward.monetaryValue) : null,
+      };
+    }).then(async ({ redemption, rewardName, monetaryValue }) => {
       // Sin esto, Google/Apple Wallet nunca se enteran del canje: el pase se queda con los
       // sellos/puntos viejos para siempre y el cliente no tiene forma de saber si se aplicó.
-      await this.walletService.pushRedemptionUpdate(clientId, rewardName);
+      await this.walletService.pushRedemptionUpdate(clientId, rewardName, monetaryValue);
       return redemption;
     });
   }
