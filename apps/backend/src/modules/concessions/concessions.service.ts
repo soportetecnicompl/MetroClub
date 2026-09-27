@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PromotionsService } from '../ticketing/promotions.service';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -21,7 +22,10 @@ function signedQuantity(type: string, quantity: number): number {
  */
 @Injectable()
 export class ConcessionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly promotions: PromotionsService,
+  ) {}
 
   createIngredient(dto: CreateIngredientDto) {
     return this.prisma.ingredient.create({
@@ -114,9 +118,18 @@ export class ConcessionsService {
   /**
    * Vende uno o más productos: valida receta y stock, descuenta cada insumo afectado de
    * forma atómica (candado de fila + kardex), y registra la venta. Si cualquier insumo no
-   * alcanza, no se descuenta nada y la venta completa se rechaza (todo o nada).
+   * alcanza, no se descuenta nada y la venta completa se rechaza (todo o nada). Si viene
+   * clientId, busca la promoción de confitería más conveniente (motor de promociones,
+   * scope ALL_CONCESSIONS — ej. el 10% MetroClub) y la aplica sobre el subtotal.
    */
   async sellProducts(dto: SellConcessionsDto, actorId?: string) {
+    const client = dto.clientId
+      ? await this.prisma.client.findUnique({ where: { id: dto.clientId, isDeleted: false } })
+      : null;
+    if (dto.clientId && !client) {
+      throw new NotFoundException('Cliente MetroClub no encontrado');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const productIds = [...new Set(dto.items.map((i) => i.productId))];
       const products = await tx.product.findMany({
@@ -129,21 +142,31 @@ export class ConcessionsService {
       }
 
       const consumption = new Map<string, number>();
-      let total = 0;
+      let subtotal = 0;
       for (const item of dto.items) {
         const product = products.find((p) => p.id === item.productId)!;
-        total += Number(product.price) * item.quantity;
+        subtotal += Number(product.price) * item.quantity;
         for (const line of product.recipe) {
           const needed = Number(line.quantityPerUnit) * item.quantity;
           consumption.set(line.ingredientId, (consumption.get(line.ingredientId) ?? 0) + needed);
         }
       }
 
+      const match = await this.promotions.getApplicableConcessionDiscount(
+        { isMetroClub: Boolean(client), complexId: dto.complexId },
+        subtotal,
+      );
+      const discountApplied = match?.discountApplied ?? 0;
+      const total = subtotal - discountApplied;
+
       const sale = await tx.concessionSale.create({
         data: {
           complexId: dto.complexId,
-          clientId: dto.clientId,
+          clientId: client?.id,
           channel: dto.channel,
+          subtotal,
+          discountApplied,
+          promotionId: match?.promotion.id,
           total,
           items: {
             create: dto.items.map((item) => ({

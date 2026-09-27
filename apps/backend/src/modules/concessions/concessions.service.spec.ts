@@ -9,9 +9,11 @@ describe('ConcessionsService', () => {
     productRecipeItem: { deleteMany: jest.Mock; createMany: jest.Mock; findMany: jest.Mock };
     stockMovement: { create: jest.Mock; findMany: jest.Mock };
     concessionSale: { create: jest.Mock; findMany: jest.Mock };
+    client: { findUnique: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
   };
+  let promotions: { getApplicableConcessionDiscount: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -20,6 +22,7 @@ describe('ConcessionsService', () => {
       productRecipeItem: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
       stockMovement: { create: jest.fn(), findMany: jest.fn() },
       concessionSale: { create: jest.fn(), findMany: jest.fn() },
+      client: { findUnique: jest.fn() },
       $queryRaw: jest.fn(),
       $transaction: jest.fn((arg: unknown) => {
         // Soporta tanto $transaction(cb) como $transaction([...operaciones])
@@ -27,7 +30,8 @@ describe('ConcessionsService', () => {
         return Promise.all(arg as Promise<unknown>[]);
       }),
     };
-    service = new ConcessionsService(prisma as never);
+    promotions = { getApplicableConcessionDiscount: jest.fn().mockResolvedValue(null) };
+    service = new ConcessionsService(prisma as never, promotions as never);
   });
 
   describe('adjustStock', () => {
@@ -103,7 +107,44 @@ describe('ConcessionsService', () => {
       // 2 combos x 1 vaso = 2; stock 20 - 2 = 18
       expect(prisma.ingredient.update).toHaveBeenCalledWith({ where: { id: 'vaso-refresco' }, data: { stock: 18 } });
       expect(prisma.concessionSale.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ total: 160 }) }),
+        expect.objectContaining({ data: expect.objectContaining({ subtotal: 160, discountApplied: 0, total: 160 }) }),
+      );
+    });
+
+    it('aplica el descuento de confitería (motor de promociones) cuando el cliente está identificado', async () => {
+      prisma.product.findMany.mockResolvedValue([combo]);
+      prisma.client.findUnique.mockResolvedValue({ id: 'client-1' });
+      prisma.concessionSale.create.mockResolvedValue({ id: 'sale-1' });
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ id: 'palomitas', name: 'Palomitas', stock: 1000 }])
+        .mockResolvedValueOnce([{ id: 'vaso-refresco', name: 'Vaso de refresco', stock: 20 }]);
+      prisma.ingredient.update.mockResolvedValue({});
+      prisma.stockMovement.create.mockResolvedValue({});
+      promotions.getApplicableConcessionDiscount.mockResolvedValue({
+        promotion: { id: 'promo-confiteria' },
+        discountApplied: 16,
+      });
+
+      await service.sellProducts({
+        complexId: 'complex-1',
+        clientId: 'client-1',
+        channel: 'BOX_OFFICE',
+        items: [{ productId: 'product-1', quantity: 2 }],
+      } as never);
+
+      expect(promotions.getApplicableConcessionDiscount).toHaveBeenCalledWith(
+        { isMetroClub: true, complexId: 'complex-1' },
+        160,
+      );
+      expect(prisma.concessionSale.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            subtotal: 160,
+            discountApplied: 16,
+            total: 144,
+            promotionId: 'promo-confiteria',
+          }),
+        }),
       );
     });
 

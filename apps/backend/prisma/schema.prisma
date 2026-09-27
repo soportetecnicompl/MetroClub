@@ -102,6 +102,8 @@ enum PromotionScope {
   MOVIE
   FORMAT
   COMPLEX
+  /// Descuento sobre el total de confitería (no boletos) — ej. el 10% MetroClub.
+  ALL_CONCESSIONS
 }
 
 /// Complejo de cine (sucursal)
@@ -517,9 +519,10 @@ model Promotion {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  movie   Movie?   @relation(fields: [movieId], references: [id])
-  complex Complex? @relation(fields: [complexId], references: [id])
-  tickets Ticket[]
+  movie           Movie?           @relation(fields: [movieId], references: [id])
+  complex         Complex?         @relation(fields: [complexId], references: [id])
+  tickets         Ticket[]
+  concessionSales ConcessionSale[]
 
   @@index([isActive])
   @@map("promotions")
@@ -615,18 +618,25 @@ model StockMovement {
 /// Venta de confitería — separada de Ticket (boletería), puede ir sola o junto a un boleto
 /// en la misma transacción de taquilla.
 model ConcessionSale {
-  id        String       @id @default(cuid())
-  complexId String
-  clientId  String?
-  channel   SalesChannel
-  total     Decimal      @db.Decimal(10, 2)
-  createdAt DateTime     @default(now())
+  id              String       @id @default(cuid())
+  complexId       String
+  clientId        String?
+  channel         SalesChannel
+  /// Suma de unitPrice*quantity de todas las líneas, antes del descuento.
+  subtotal        Decimal      @default(0) @db.Decimal(10, 2)
+  discountApplied Decimal      @default(0) @db.Decimal(10, 2)
+  promotionId     String?
+  /// subtotal - discountApplied — lo que realmente se cobró.
+  total           Decimal      @db.Decimal(10, 2)
+  createdAt       DateTime     @default(now())
 
-  complex Complex              @relation(fields: [complexId], references: [id])
-  client  Client?              @relation(fields: [clientId], references: [id])
-  items   ConcessionSaleItem[]
+  complex   Complex              @relation(fields: [complexId], references: [id])
+  client    Client?              @relation(fields: [clientId], references: [id])
+  promotion Promotion?           @relation(fields: [promotionId], references: [id])
+  items     ConcessionSaleItem[]
 
   @@index([complexId])
+  @@index([promotionId])
   @@map("concession_sales")
 }
 

@@ -79,4 +79,40 @@ describe('PromotionsService', () => {
 
     expect(result?.discountApplied).toBe(100);
   });
+
+  describe('getApplicableConcessionDiscount', () => {
+    const concessionContext = { isMetroClub: true, complexId: 'complex-1' };
+
+    it('aplica el 10% MetroClub de confitería (scope ALL_CONCESSIONS)', async () => {
+      prisma.promotion.findMany.mockResolvedValue([
+        { id: 'confi-10', type: 'PERCENT_OFF', value: 10, scope: 'ALL_CONCESSIONS', requiresMetroClub: true, endsAt: null },
+      ]);
+
+      const result = await service.getApplicableConcessionDiscount(concessionContext, 160);
+
+      expect(result?.promotion.id).toBe('confi-10');
+      expect(result?.discountApplied).toBe(16);
+    });
+
+    it('nunca deja que una promoción de boletos (ALL_TICKETS/MOVIE/FORMAT/COMPLEX) aplique a confitería', async () => {
+      prisma.promotion.findMany.mockResolvedValue([]); // el query real filtra scope='ALL_CONCESSIONS' en BD
+
+      const result = await service.getApplicableConcessionDiscount(concessionContext, 160);
+
+      expect(result).toBeNull();
+      expect(prisma.promotion.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ scope: 'ALL_CONCESSIONS' }) }),
+      );
+    });
+
+    it('no aplica el descuento si el cliente no está identificado y la promoción requiere MetroClub', async () => {
+      prisma.promotion.findMany.mockResolvedValue([
+        { id: 'confi-10', type: 'PERCENT_OFF', value: 10, scope: 'ALL_CONCESSIONS', requiresMetroClub: true, endsAt: null },
+      ]);
+
+      const result = await service.getApplicableConcessionDiscount({ ...concessionContext, isMetroClub: false }, 160);
+
+      expect(result).toBeNull();
+    });
+  });
 });

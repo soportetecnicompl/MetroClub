@@ -88,4 +88,37 @@ export class PromotionsService {
 
     return best;
   }
+
+  /**
+   * Igual que getApplicablePromotion, pero para confitería (scope ALL_CONCESSIONS) —
+   * dominio separado de los boletos: una promoción de boletos nunca aplica aquí y
+   * viceversa, aunque compartan la misma tabla.
+   */
+  async getApplicableConcessionDiscount(
+    context: { isMetroClub: boolean; complexId: string },
+    basePrice: number,
+  ): Promise<{ promotion: Promotion; discountApplied: number } | null> {
+    const now = new Date();
+    const candidates = await this.prisma.promotion.findMany({
+      where: {
+        isActive: true,
+        scope: 'ALL_CONCESSIONS',
+        OR: [{ startsAt: null }, { startsAt: { lte: now } }],
+      },
+    });
+
+    const applicable = candidates.filter((promo) => {
+      if (promo.endsAt && promo.endsAt < now) return false;
+      if (promo.requiresMetroClub && !context.isMetroClub) return false;
+      return true;
+    });
+
+    if (applicable.length === 0) return null;
+
+    const best = applicable
+      .map((promotion) => ({ promotion, discountApplied: this.discountFor(promotion, basePrice) }))
+      .sort((a, b) => b.discountApplied - a.discountApplied)[0];
+
+    return best;
+  }
 }

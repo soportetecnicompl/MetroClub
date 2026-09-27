@@ -18,7 +18,7 @@ interface Promotion {
   name: string;
   type: 'PERCENT_OFF' | 'FIXED_AMOUNT_OFF';
   value: string;
-  scope: 'ALL_TICKETS' | 'MOVIE' | 'FORMAT' | 'COMPLEX';
+  scope: 'ALL_TICKETS' | 'MOVIE' | 'FORMAT' | 'COMPLEX' | 'ALL_CONCESSIONS';
   movieId: string | null;
   format: string | null;
   complexId: string | null;
@@ -35,6 +35,7 @@ const SCOPE_LABELS: Record<Promotion['scope'], string> = {
   MOVIE: 'Película específica',
   FORMAT: 'Formato específico',
   COMPLEX: 'Complejo específico',
+  ALL_CONCESSIONS: 'Toda la confitería',
 };
 
 export default function PromotionsPage() {
