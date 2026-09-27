@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  CENTRAL_ADMIN
+  COMPLEX_ADMIN
+  STAFF
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum RedemptionStatus {
+  PENDING
+  REDEEMED
+  CANCELLED
+}
+
+enum WalletPlatform {
+  APPLE
+  GOOGLE
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  CANCELLED
+}
+
+enum WhatsAppMessageType {
+  POST_VISIT
+  REVIEW_REQUEST
+  WIN_BACK
+  BIRTHDAY
+  CAMPAIGN
+}
+
+/// Complejo de cine (sucursal)
+model Complex {
+  id        String   @id @default(cuid())
+  name      String
+  city      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  visits       Visit[]
+  redemptions  Redemption[]
+
+  @@map("complexes")
+}
+
+/// Usuario del panel de administración (no confundir con Client)
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  complexId    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  complex Complex? @relation(fields: [complexId], references: [id])
+
+  @@map("users")
+}
+
+/// Cliente final del programa de lealtad
+model Client {
+  id            String        @id @default(cuid())
+  name          String
+  whatsapp      String        @unique
+  birthDate     DateTime?
+  consentStatus ConsentStatus @default(GRANTED)
+  consentAt     DateTime      @default(now())
+  stamps        Int           @default(0)
+  points        Int           @default(0)
+  lastVisitAt   DateTime?
+  isDeleted     Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  walletPasses      WalletPass[]
+  visits            Visit[]
+  redemptions       Redemption[]
+  whatsappMessages  WhatsAppMessage[]
+  auditLogs         AuditLog[]
+
+  @@map("clients")
+}
+
+/// Tarjeta digital emitida en Apple Wallet / Google Wallet para un cliente
+model WalletPass {
+  id           String         @id @default(cuid())
+  clientId     String
+  platform     WalletPlatform
+  serialNumber String         @unique
+  /// Token que Apple envía como `Authorization: ApplePass <token>` en cada
+  /// llamada al web service (registro de dispositivo, descarga del pass).
+  authToken    String         @default(cuid())
+  passUrl      String?
+  lastPushedAt DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  client                Client                  @relation(fields: [clientId], references: [id])
+  appleDeviceRegistrations AppleDeviceRegistration[]
+
+  @@map("wallet_passes")
+}
+
+/// Dispositivo Apple registrado para recibir push updates de un wallet pass
+/// (Apple Wallet Web Service — POST/DELETE /v1/devices/.../registrations/...).
+model AppleDeviceRegistration {
+  id                      String   @id @default(cuid())
+  walletPassId            String
+  deviceLibraryIdentifier String
+  pushToken               String
+  createdAt               DateTime @default(now())
+
+  walletPass WalletPass @relation(fields: [walletPassId], references: [id], onDelete: Cascade)
+
+  @@unique([walletPassId, deviceLibraryIdentifier])
+  @@map("apple_device_registrations")
+}
+
+/// Visita registrada (sello NFC/QR) en un complejo
+model Visit {
+  id           String   @id @default(cuid())
+  clientId     String
+  complexId    String
+  stampsEarned Int      @default(1)
+  pointsEarned Int      @default(0)
+  amountSpent  Decimal? @db.Decimal(10, 2)
+  channel      String   @default("NFC")
+  createdAt    DateTime @default(now())
+
+  client  Client  @relation(fields: [clientId], references: [id])
+  complex Complex @relation(fields: [complexId], references: [id])
+
+  @@map("visits")
+}
+
+/// Regla de lealtad configurable (sellos por visita, puntos por gasto)
+model LoyaltyRule {
+  id                  String   @id @default(cuid())
+  name                String
+  stampsPerVisit      Int      @default(1)
+  pointsPerCurrency   Decimal  @default(0) @db.Decimal(10, 2)
+  currencyUnit        Decimal  @default(10) @db.Decimal(10, 2)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("loyalty_rules")
+}
+
+/// Premio canjeable por sellos/puntos
+model Reward {
+  id            String       @id @default(cuid())
+  name          String
+  description   String?
+  stampsCost    Int?
+  pointsCost    Int?
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  redemptions Redemption[]
+
+  @@map("rewards")
+}
+
+/// Canje de un premio por parte de un cliente
+model Redemption {
+  id        String           @id @default(cuid())
+  clientId  String
+  rewardId  String
+  complexId String?
+  status    RedemptionStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  redeemedAt DateTime?
+
+  client  Client   @relation(fields: [clientId], references: [id])
+  reward  Reward   @relation(fields: [rewardId], references: [id])
+  complex Complex? @relation(fields: [complexId], references: [id])
+
+  @@map("redemptions")
+}
+
+/// Plantilla aprobada de WhatsApp Business API
+model WhatsAppTemplate {
+  id          String               @id @default(cuid())
+  name        String               @unique
+  type        WhatsAppMessageType
+  metaTemplateId String?
+  body        String
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  messages WhatsAppMessage[]
+
+  @@map("whatsapp_templates")
+}
+
+/// Registro de mensajes de WhatsApp enviados a un cliente
+model WhatsAppMessage {
+  id          String              @id @default(cuid())
+  clientId    String
+  templateId  String
+  type        WhatsAppMessageType
+  status      String              @default("queued")
+  sentAt      DateTime?
+  createdAt   DateTime            @default(now())
+
+  client   Client           @relation(fields: [clientId], references: [id])
+  template WhatsAppTemplate @relation(fields: [templateId], references: [id])
+
+  @@map("whatsapp_messages")
+}
+
+/// Campaña de estrenos/eventos (envío masivo o segmentado)
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  templateId  String?
+  status      CampaignStatus @default(DRAFT)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  segment     Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("campaigns")
+}
+
+/// Log de auditoría (incluye derecho al olvido / bajas de clientes)
+model AuditLog {
+  id        String   @id @default(cuid())
+  clientId  String?
+  actorId   String?
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  client Client? @relation(fields: [clientId], references: [id])
+
+  @@map("audit_logs")
+}

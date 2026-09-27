@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run vercel-build",
+  "installCommand": "npm install",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ],
+  "crons": [
+    { "path": "/api/internal/cron/birthday-greetings", "schedule": "0 15 * * *" },
+    { "path": "/api/internal/cron/win-back-campaigns", "schedule": "0 16 * * *" }
+  ]
+}

@@ -1,65 +1,43 @@
-# ProyectoCMS — Sistema de Gestión de Proyectos
+# MetroClub — Sistema de Fidelización Digital para Metrocinemas
 
-Sistema de gestión de proyectos para soporte técnico multi-empresa. Autoalojable en cualquier VPS con Node.js.
+Reemplazo digital del programa "Club Cineando": tarjeta de lealtad en Apple Wallet / Google Wallet,
+enrolamiento por NFC, reglas de sellos/puntos configurables y automatizaciones por WhatsApp.
 
-## Características
+El PRD completo del proyecto está en [`docs/PRD-metroclub.md`](./docs/PRD-metroclub.md).
 
-- **Gestión de empresas**: Crea y administra múltiples empresas clientes
-- **Proyectos por empresa**: Cada empresa tiene sus proyectos con estado, prioridad y fechas
-- **Tareas**: Crea, asigna y rastrea tareas con prioridad, horas estimadas y fechas
-- **Vista Kanban**: Tablero visual de tareas por estado
-- **Planificación**: Vista de línea de tiempo de tareas con fechas
-- **Comentarios**: En proyectos y tareas
-- **Observaciones**: Notas especiales por proyecto (riesgo, problema, decisión)
-- **Registro de tiempo**: Log de horas trabajadas por tarea
-- **Invitaciones por email**: Invita usuarios a empresas con roles definidos
-- **Automatizaciones**: Crea reglas para generar tareas automáticamente
-- **Gestión de usuarios**: Panel de administración de usuarios
-- **Roles**: Admin (acceso total) / Miembro / Observador
+## Estructura del monorepo
 
-## Requisitos
+```
+apps/
+  backend/     API NestJS (auth, clientes, complejos, lealtad, wallet, whatsapp, campañas, reportes)
+  admin-web/   Panel de administración (Next.js)
+docs/
+  PRD-metroclub.md
+```
 
-- Node.js v18 o superior
-- Acceso a un servidor SMTP (para invitaciones por email)
+## Stack
 
-## Instalación rápida
+- **Backend:** Node.js + NestJS + PostgreSQL (Prisma) + Redis
+- **Admin Frontend:** Next.js + React
+- **Wallet:** Apple PassKit + Google Wallet API
+- **WhatsApp:** Meta Cloud API (vía BSP)
+- **Auth:** JWT + roles (super-admin, admin central, admin de complejo, personal)
+
+## Desarrollo
+
+Requisitos: Node.js 20+, PostgreSQL 15+, Redis 7+.
 
 ```bash
-chmod +x install.sh
-./install.sh
-# Edita .env con tu configuración
-nano .env
-npm start
+npm install
+
+# Backend
+cp apps/backend/.env.example apps/backend/.env
+npm run dev:backend
+
+# Admin web
+npm run dev:admin
 ```
 
-## Configuración (.env)
+## Estado del proyecto
 
-```env
-PORT=3000
-JWT_SECRET=tu_clave_secreta_muy_larga_aqui
-APP_URL=https://tudominio.com
-
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=tu@gmail.com
-SMTP_PASS=contraseña_de_aplicacion
-
-ADMIN_EMAIL=admin@tuempresa.com
-ADMIN_PASSWORD=TuContraseñaSegura123!
-```
-
-## Producción con PM2
-
-```bash
-npm install -g pm2
-pm2 start server.js --name proyecto-cms
-pm2 startup && pm2 save
-```
-
-## Base de datos
-
-Los datos se guardan en `data/cms.db` (SQLite). Haz backup de este archivo regularmente.
-
-```bash
-cp data/cms.db data/cms_backup_$(date +%Y%m%d).db
-```
+Fase 1 (MVP) en desarrollo. Ver alcance y criterios de aceptación en el PRD.

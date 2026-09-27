@@ -1,6 +1,12 @@
 node_modules/
-data/
+dist/
+build/
+.next/
 .env
-*.db
+.env.local
 *.log
+coverage/
 .DS_Store
+.turbo/
+prisma/*.db
+*.tsbuildinfo
