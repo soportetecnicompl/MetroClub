@@ -4,7 +4,7 @@ describe('ReportsService', () => {
   let service: ReportsService;
   let prisma: {
     client: { count: jest.Mock; findMany: jest.Mock; aggregate: jest.Mock; findUniqueOrThrow: jest.Mock };
-    visit: { count: jest.Mock; groupBy: jest.Mock };
+    visit: { count: jest.Mock; groupBy: jest.Mock; findMany: jest.Mock };
     redemption: { count: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock; aggregate: jest.Mock };
     reward: { findMany: jest.Mock };
     whatsAppMessage: { count: jest.Mock };
@@ -14,7 +14,7 @@ describe('ReportsService', () => {
   beforeEach(() => {
     prisma = {
       client: { count: jest.fn(), findMany: jest.fn(), aggregate: jest.fn(), findUniqueOrThrow: jest.fn() },
-      visit: { count: jest.fn(), groupBy: jest.fn() },
+      visit: { count: jest.fn(), groupBy: jest.fn(), findMany: jest.fn() },
       redemption: { count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn(), aggregate: jest.fn() },
       reward: { findMany: jest.fn() },
       whatsAppMessage: { count: jest.fn() },
@@ -261,6 +261,166 @@ describe('ReportsService', () => {
       const result = await service.listRedemptions({ page: 1, limit: 20 });
 
       expect(result).toEqual({ data: [{ id: 'redemption-1' }], total: 1, page: 1, limit: 20, totalCost: 150 });
+    });
+  });
+
+  describe('getTrends', () => {
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-15T12:00:00.000Z'));
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('reconstruye ingresos/costo/retención mes a mes desde filas reales con fecha', async () => {
+      prisma.client.findMany.mockResolvedValue([
+        { id: 'c1', createdAt: new Date('2026-01-10T00:00:00.000Z') },
+        { id: 'c2', createdAt: new Date('2026-02-05T00:00:00.000Z') },
+      ]);
+      prisma.visit.findMany.mockResolvedValue([
+        { clientId: 'c1', createdAt: new Date('2026-02-10T00:00:00.000Z'), amountSpent: 50 },
+        { clientId: 'c1', createdAt: new Date('2026-03-05T00:00:00.000Z'), amountSpent: 30 },
+        { clientId: 'c2', createdAt: new Date('2026-02-20T00:00:00.000Z'), amountSpent: 20 },
+      ]);
+      prisma.redemption.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-02-15T00:00:00.000Z'), costAtRedemption: 15 },
+        { createdAt: new Date('2026-03-10T00:00:00.000Z'), costAtRedemption: 25 },
+      ]);
+
+      const { points } = await service.getTrends(2);
+
+      expect(points.map((p) => p.month)).toEqual(['2026-02', '2026-03']);
+
+      const [feb, mar] = points;
+      expect(feb.newClients).toBe(1); // solo c2 se enroló en febrero
+      expect(feb.visits).toBe(2); // v1 (c1) + v3 (c2)
+      expect(feb.revenue).toBe(70); // 50 + 20
+      expect(feb.redemptions).toBe(1);
+      expect(feb.redemptionCost).toBe(15);
+      expect(feb.costToRevenuePercent).toBe(21.4); // 15/70
+      expect(feb.monthlyRetentionRate).toBeNull(); // no hay mes previo en la ventana
+      expect(feb.clientsBySegment).toEqual({ active: 2, at_risk: 0, dormant: 0, lost: 0, never: 0 });
+
+      expect(mar.newClients).toBe(0);
+      expect(mar.visits).toBe(1); // solo v2 (c1) — "ahora" recorta el mes a mitad de marzo
+      expect(mar.revenue).toBe(30);
+      expect(mar.redemptions).toBe(1);
+      expect(mar.redemptionCost).toBe(25);
+      expect(mar.costToRevenuePercent).toBe(83.3); // 25/30
+      // De los 2 clientes que vinieron en feb, solo c1 volvió en marzo -> 1/2 = 50%.
+      expect(mar.monthlyRetentionRate).toBe(50);
+      expect(mar.clientsBySegment).toEqual({ active: 2, at_risk: 0, dormant: 0, lost: 0, never: 0 });
+    });
+  });
+
+  describe('getComplexComparison', () => {
+    it('compara complejos por ingresos, retención y costo — no solo por tráfico', async () => {
+      prisma.complex.findMany.mockResolvedValue([
+        { id: 'complex-a', name: 'Complejo A', city: 'Tegucigalpa' },
+        { id: 'complex-b', name: 'Complejo B', city: 'San Pedro Sula' },
+      ]);
+      // Complejo A: 2 visitas, 1 cliente que repite.
+      prisma.visit.findMany.mockResolvedValueOnce([{ amountSpent: 100 }, { amountSpent: 50 }]);
+      prisma.redemption.aggregate.mockResolvedValueOnce({ _sum: { costAtRedemption: 20 } });
+      prisma.redemption.count.mockResolvedValueOnce(3);
+      prisma.visit.groupBy.mockResolvedValueOnce([{ clientId: 'c1', _count: 2 }]);
+      // Complejo B: 1 visita de mayor ticket, 2 clientes que no repiten, sin canjes.
+      prisma.visit.findMany.mockResolvedValueOnce([{ amountSpent: 300 }]);
+      prisma.redemption.aggregate.mockResolvedValueOnce({ _sum: { costAtRedemption: null } });
+      prisma.redemption.count.mockResolvedValueOnce(0);
+      prisma.visit.groupBy.mockResolvedValueOnce([
+        { clientId: 'c2', _count: 1 },
+        { clientId: 'c3', _count: 1 },
+      ]);
+
+      const result = await service.getComplexComparison();
+
+      // Ordenado por ingresos: B (300) antes que A (150), aunque A tenga más visitas.
+      expect(result).toEqual([
+        {
+          complexId: 'complex-b',
+          name: 'Complejo B',
+          city: 'San Pedro Sula',
+          visits: 1,
+          distinctClients: 2,
+          revenue: 300,
+          avgSpendPerVisit: 300,
+          redemptions: 0,
+          redemptionCost: 0,
+          retentionRate: 0,
+        },
+        {
+          complexId: 'complex-a',
+          name: 'Complejo A',
+          city: 'Tegucigalpa',
+          visits: 2,
+          distinctClients: 1,
+          revenue: 150,
+          avgSpendPerVisit: 75,
+          redemptions: 3,
+          redemptionCost: 20,
+          retentionRate: 100,
+        },
+      ]);
+    });
+  });
+
+  describe('getAlerts', () => {
+    it('avisa cuando la base en riesgo/dormida/perdida crece >=20% (y al menos 2 clientes) mes a mes', async () => {
+      jest.spyOn(service, 'getTrends').mockResolvedValue({
+        points: [
+          {
+            month: '2026-01',
+            newClients: 5,
+            visits: 10,
+            revenue: 100,
+            redemptions: 1,
+            redemptionCost: 10,
+            costToRevenuePercent: 10,
+            monthlyRetentionRate: null,
+            clientsBySegment: { active: 8, at_risk: 2, dormant: 1, lost: 1, never: 0 },
+          },
+          {
+            month: '2026-02',
+            newClients: 5,
+            visits: 10,
+            revenue: 100,
+            redemptions: 1,
+            redemptionCost: 10,
+            costToRevenuePercent: 10,
+            monthlyRetentionRate: 80,
+            clientsBySegment: { active: 5, at_risk: 3, dormant: 2, lost: 2, never: 0 },
+          },
+        ],
+      });
+
+      const result = await service.getAlerts();
+
+      expect(result.alerts).toEqual(
+        expect.arrayContaining([expect.objectContaining({ level: 'warning', title: expect.stringContaining('en riesgo') })]),
+      );
+    });
+
+    it('no genera alertas cuando no hay al menos dos meses de historia para comparar', async () => {
+      jest.spyOn(service, 'getTrends').mockResolvedValue({
+        points: [
+          {
+            month: '2026-03',
+            newClients: 1,
+            visits: 1,
+            revenue: 10,
+            redemptions: 0,
+            redemptionCost: 0,
+            costToRevenuePercent: 0,
+            monthlyRetentionRate: null,
+            clientsBySegment: { active: 1, at_risk: 0, dormant: 0, lost: 0, never: 0 },
+          },
+        ],
+      });
+
+      const result = await service.getAlerts();
+
+      expect(result.alerts).toEqual([]);
     });
   });
 });

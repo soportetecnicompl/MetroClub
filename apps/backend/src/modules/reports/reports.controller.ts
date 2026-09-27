@@ -46,6 +46,21 @@ export class ReportsController {
     return this.reportsService.getRewardsRoi();
   }
 
+  @Get('trends')
+  getTrends(@Query('months') months?: string) {
+    return this.reportsService.getTrends(months ? Number(months) : undefined);
+  }
+
+  @Get('complexes-comparison')
+  getComplexComparison() {
+    return this.reportsService.getComplexComparison();
+  }
+
+  @Get('alerts')
+  getAlerts() {
+    return this.reportsService.getAlerts();
+  }
+
   @Get('redemptions')
   listRedemptions(
     @Query('complexId') complexId?: string,

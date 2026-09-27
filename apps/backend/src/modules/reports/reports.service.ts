@@ -431,6 +431,206 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Tendencia mensual — sin esto el dashboard solo muestra una foto del momento: no hay
+   * forma de saber si la retención/costo/base en riesgo viene mejorando o empeorando.
+   * Todo se reconstruye de filas reales con fecha (visitas, canjes, clientes), incluyendo
+   * la mezcla de segmentos "como estaba" al cierre de cada mes (no solo hoy).
+   */
+  async getTrends(months = 6) {
+    const clampedMonths = Math.min(Math.max(Math.floor(months) || 6, 1), 24);
+    const now = new Date();
+
+    const [clients, visits, redemptions] = await Promise.all([
+      this.prisma.client.findMany({ where: { isDeleted: false }, select: { id: true, createdAt: true } }),
+      this.prisma.visit.findMany({ select: { clientId: true, createdAt: true, amountSpent: true } }),
+      this.prisma.redemption.findMany({ select: { createdAt: true, costAtRedemption: true } }),
+    ]);
+
+    // Fechas de visita por cliente, ordenadas — para saber cuál era su "última visita"
+    // como estaba al cierre de cualquier mes pasado, no solo hoy.
+    const visitDatesByClient = new Map<string, Date[]>();
+    for (const v of visits) {
+      const arr = visitDatesByClient.get(v.clientId) ?? [];
+      arr.push(v.createdAt);
+      visitDatesByClient.set(v.clientId, arr);
+    }
+    for (const arr of visitDatesByClient.values()) arr.sort((a, b) => a.getTime() - b.getTime());
+
+    const lastVisitAsOf = (clientId: string, asOf: Date): Date | null => {
+      const dates = visitDatesByClient.get(clientId);
+      if (!dates) return null;
+      let result: Date | null = null;
+      for (const d of dates) {
+        if (d <= asOf) result = d;
+        else break;
+      }
+      return result;
+    };
+
+    const monthStarts: Date[] = [];
+    for (let i = clampedMonths - 1; i >= 0; i--) {
+      monthStarts.push(new Date(now.getFullYear(), now.getMonth() - i, 1));
+    }
+
+    let previousMonthClientIds: Set<string> | null = null;
+
+    const points = monthStarts.map((monthStart) => {
+      const monthEndRaw = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      const monthEnd = monthEndRaw > now ? now : monthEndRaw;
+
+      const monthVisits = visits.filter((v) => v.createdAt >= monthStart && v.createdAt <= monthEnd);
+      const monthRedemptions = redemptions.filter((r) => r.createdAt >= monthStart && r.createdAt <= monthEnd);
+      const newClients = clients.filter((c) => c.createdAt >= monthStart && c.createdAt <= monthEnd).length;
+
+      const revenue = monthVisits.reduce((sum, v) => sum + (v.amountSpent ? Number(v.amountSpent) : 0), 0);
+      const redemptionCost = monthRedemptions.reduce(
+        (sum, r) => sum + (r.costAtRedemption ? Number(r.costAtRedemption) : 0),
+        0,
+      );
+
+      const segmentCounts: Record<ClientSegment, number> = { active: 0, at_risk: 0, dormant: 0, lost: 0, never: 0 };
+      for (const client of clients) {
+        if (client.createdAt > monthEnd) continue; // todavía no se había enrolado
+        segmentCounts[computeSegment(lastVisitAsOf(client.id, monthEnd), monthEnd)] += 1;
+      }
+
+      // Retención mensual clásica: de quienes vinieron el mes pasado, ¿cuántos también
+      // vinieron este mes? (null en el primer punto de la ventana: no hay mes previo).
+      const thisMonthClientIds = new Set(monthVisits.map((v) => v.clientId));
+      let monthlyRetentionRate: number | null = null;
+      if (previousMonthClientIds && previousMonthClientIds.size > 0) {
+        let returning = 0;
+        for (const id of previousMonthClientIds) {
+          if (thisMonthClientIds.has(id)) returning += 1;
+        }
+        monthlyRetentionRate = Math.round((returning / previousMonthClientIds.size) * 100);
+      }
+      previousMonthClientIds = thisMonthClientIds;
+
+      return {
+        month: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+        newClients,
+        visits: monthVisits.length,
+        revenue,
+        redemptions: monthRedemptions.length,
+        redemptionCost,
+        costToRevenuePercent: revenue > 0 ? Number(((redemptionCost / revenue) * 100).toFixed(1)) : null,
+        monthlyRetentionRate,
+        clientsBySegment: segmentCounts,
+      };
+    });
+
+    return { points };
+  }
+
+  /**
+   * Compara complejos entre sí (no solo cuál tiene más tráfico, ver "topComplexes" del
+   * dashboard) — retención, gasto promedio y costo de premios por sucursal, para saber
+   * cuál realmente funciona mejor y no solo cuál mueve más gente.
+   */
+  async getComplexComparison() {
+    const complexes = await this.prisma.complex.findMany({ where: { isActive: true } });
+
+    const rows = await Promise.all(
+      complexes.map(async (complex) => {
+        const [visits, redemptionCost, redemptionsCount, visitsByClient] = await Promise.all([
+          this.prisma.visit.findMany({ where: { complexId: complex.id }, select: { amountSpent: true } }),
+          sumRedemptionCost(this.prisma, { complexId: complex.id }),
+          this.prisma.redemption.count({ where: { complexId: complex.id } }),
+          this.prisma.visit.groupBy({ by: ['clientId'], where: { complexId: complex.id }, _count: true }),
+        ]);
+
+        const revenue = visits.reduce((sum, v) => sum + (v.amountSpent ? Number(v.amountSpent) : 0), 0);
+        const distinctClients = visitsByClient.length;
+        const returningClients = visitsByClient.filter((v) => v._count >= 2).length;
+
+        return {
+          complexId: complex.id,
+          name: complex.name,
+          city: complex.city,
+          visits: visits.length,
+          distinctClients,
+          revenue,
+          avgSpendPerVisit: visits.length > 0 ? Number((revenue / visits.length).toFixed(2)) : 0,
+          redemptions: redemptionsCount,
+          redemptionCost,
+          retentionRate: distinctClients > 0 ? Math.round((returningClients / distinctClients) * 100) : 0,
+        };
+      }),
+    );
+
+    return rows.sort((a, b) => b.revenue - a.revenue);
+  }
+
+  /**
+   * Alertas proactivas: en vez de obligar al gerente a entrar a revisar cada KPI, se
+   * comparan los últimos dos meses de `getTrends` y se avisa cuando algo se mueve lo
+   * suficiente como para requerir acción — para bien o para mal. Umbrales deliberadamente
+   * conservadores para no generar ruido con la base pequeña de un piloto.
+   */
+  async getAlerts() {
+    const { points } = await this.getTrends(2);
+    const alerts: { level: 'warning' | 'success' | 'info'; title: string; detail: string }[] = [];
+
+    if (points.length < 2) {
+      return { alerts: [] };
+    }
+
+    const [prev, curr] = points;
+    const prevAtRisk = prev.clientsBySegment.at_risk + prev.clientsBySegment.dormant + prev.clientsBySegment.lost;
+    const currAtRisk = curr.clientsBySegment.at_risk + curr.clientsBySegment.dormant + curr.clientsBySegment.lost;
+
+    if (prevAtRisk > 0 && currAtRisk >= prevAtRisk * 1.2 && currAtRisk - prevAtRisk >= 2) {
+      const growth = Math.round(((currAtRisk - prevAtRisk) / prevAtRisk) * 100);
+      alerts.push({
+        level: 'warning',
+        title: `La base en riesgo/dormida/perdida creció ${growth}%`,
+        detail: `Pasó de ${prevAtRisk} a ${currAtRisk} clientes sin visitar recientemente. Envíales una campaña de reactivación desde /clients.`,
+      });
+    } else if (currAtRisk > 0 && currAtRisk <= prevAtRisk * 0.8 && prevAtRisk - currAtRisk >= 2) {
+      alerts.push({
+        level: 'success',
+        title: 'La base en riesgo/dormida/perdida se redujo',
+        detail: `Pasó de ${prevAtRisk} a ${currAtRisk} clientes — las campañas de reactivación están funcionando.`,
+      });
+    }
+
+    if (
+      prev.monthlyRetentionRate != null &&
+      curr.monthlyRetentionRate != null &&
+      prev.monthlyRetentionRate - curr.monthlyRetentionRate >= 15
+    ) {
+      alerts.push({
+        level: 'warning',
+        title: `La retención mensual bajó ${prev.monthlyRetentionRate - curr.monthlyRetentionRate} puntos`,
+        detail: `De ${prev.monthlyRetentionRate}% a ${curr.monthlyRetentionRate}% de clientes que repiten mes a mes.`,
+      });
+    }
+
+    if (
+      prev.costToRevenuePercent != null &&
+      curr.costToRevenuePercent != null &&
+      curr.costToRevenuePercent - prev.costToRevenuePercent >= 5
+    ) {
+      alerts.push({
+        level: 'warning',
+        title: 'El costo del programa como % de ingresos subió',
+        detail: `De ${prev.costToRevenuePercent}% a ${curr.costToRevenuePercent}% — revisa el ROI por premio en /roi.`,
+      });
+    }
+
+    if (prev.newClients > 0 && curr.newClients <= prev.newClients * 0.7 && prev.newClients - curr.newClients >= 2) {
+      alerts.push({
+        level: 'warning',
+        title: 'Bajó el enrolamiento de nuevos clientes',
+        detail: `De ${prev.newClients} a ${curr.newClients} clientes nuevos este mes — revisa el flujo de auto-enrolamiento (/join) en taquilla.`,
+      });
+    }
+
+    return { alerts };
+  }
+
   async exportClientsCsv() {
     const clients = await this.prisma.client.findMany({ where: { isDeleted: false } });
     const header = 'id,name,whatsapp,stamps,points,lastVisitAt\n';
