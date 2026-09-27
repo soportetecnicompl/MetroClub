@@ -22,7 +22,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new ApiError(res.status, body?.message ?? `Error ${res.status} al consultar ${path}`);
   }
 
-  return res.json();
+  // NestJS manda el body vacío (Content-Length: 0) cuando el handler devuelve null o
+  // undefined (ej. una búsqueda que no encontró nada, o un endpoint void) — res.json()
+  // sobre un body vacío truena con "Unexpected end of JSON input". Un 204 explícito
+  // tampoco trae body. En ambos casos el valor real es "nada", así que se devuelve null.
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (null as T);
 }
 
 /**
