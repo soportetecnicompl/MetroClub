@@ -23,6 +23,22 @@ export class CatalogService {
     return this.prisma.screen.create({ data: dto });
   }
 
+  async listScreens(complexId?: string) {
+    const screens = await this.prisma.screen.findMany({
+      where: { complexId, isActive: true },
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { seats: true } } },
+    });
+    return screens.map((screen) => ({ ...screen, seatCount: screen._count.seats }));
+  }
+
+  listSeats(screenId: string) {
+    return this.prisma.seat.findMany({
+      where: { screenId, isActive: true },
+      orderBy: [{ row: 'asc' }, { number: 'asc' }],
+    });
+  }
+
   createSeats(screenId: string, dto: CreateSeatsDto) {
     return this.prisma.seat.createMany({
       data: dto.seats.map((seat) => ({ screenId, row: seat.row, number: seat.number, type: seat.type })),
@@ -35,6 +51,10 @@ export class CatalogService {
       update: { price: dto.price, isActive: true },
       create: dto,
     });
+  }
+
+  listPriceRules(complexId?: string) {
+    return this.prisma.priceRule.findMany({ where: { complexId, isActive: true }, orderBy: { format: 'asc' } });
   }
 
   createShowtime(dto: CreateShowtimeDto) {

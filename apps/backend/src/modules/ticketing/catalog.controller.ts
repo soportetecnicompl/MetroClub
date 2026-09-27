@@ -25,16 +25,31 @@ export class CatalogController {
     return this.catalogService.createMovie(dto);
   }
 
+  @Get('screens')
+  listScreens(@Query('complexId') complexId?: string) {
+    return this.catalogService.listScreens(complexId);
+  }
+
   @Post('screens')
   @Roles('SUPER_ADMIN', 'CENTRAL_ADMIN')
   createScreen(@Body() dto: CreateScreenDto) {
     return this.catalogService.createScreen(dto);
   }
 
+  @Get('screens/:id/seats')
+  listSeats(@Param('id') screenId: string) {
+    return this.catalogService.listSeats(screenId);
+  }
+
   @Post('screens/:id/seats')
   @Roles('SUPER_ADMIN', 'CENTRAL_ADMIN')
   createSeats(@Param('id') screenId: string, @Body() dto: CreateSeatsDto) {
     return this.catalogService.createSeats(screenId, dto);
+  }
+
+  @Get('price-rules')
+  listPriceRules(@Query('complexId') complexId?: string) {
+    return this.catalogService.listPriceRules(complexId);
   }
 
   @Post('price-rules')
