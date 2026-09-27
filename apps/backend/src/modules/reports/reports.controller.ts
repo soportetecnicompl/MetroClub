@@ -41,6 +41,11 @@ export class ReportsController {
     return this.reportsService.getClientInsights(id);
   }
 
+  @Get('rewards-roi')
+  getRewardsRoi() {
+    return this.reportsService.getRewardsRoi();
+  }
+
   @Get('redemptions')
   listRedemptions(
     @Query('complexId') complexId?: string,

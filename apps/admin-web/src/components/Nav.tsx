@@ -9,6 +9,7 @@ const LINKS = [
   { href: '/staff', label: 'Staff' },
   { href: '/clients', label: 'Clientes' },
   { href: '/redemptions', label: 'Canjes' },
+  { href: '/roi', label: 'ROI de premios' },
   { href: '/complexes', label: 'Complejos' },
   { href: '/loyalty', label: 'Lealtad' },
   { href: '/templates', label: 'Plantillas WhatsApp' },

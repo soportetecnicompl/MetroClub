@@ -164,6 +164,37 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('getRewardsRoi', () => {
+    it('desglosa el costo por premio y compara el gasto de quienes canjean vs. quienes no (validación de ROI)', async () => {
+      prisma.reward.findMany.mockResolvedValue([
+        { id: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 100 },
+        { id: 'reward-2', name: 'Combo personal gratis', isActive: true, stampsCost: 8, pointsCost: null, monetaryValue: 80 },
+      ]);
+      prisma.redemption.groupBy.mockResolvedValue([
+        { rewardId: 'reward-1', _count: 4 },
+        { rewardId: 'reward-2', _count: 1 },
+      ]);
+      prisma.client.aggregate
+        .mockResolvedValueOnce({ _sum: { totalSpent: 8000 } }) // ingresos totales de la base
+        .mockResolvedValueOnce({ _avg: { totalSpent: 900 }, _count: 10 }) // canjean
+        .mockResolvedValueOnce({ _avg: { totalSpent: 300 }, _count: 40 }); // no canjean
+
+      const result = await service.getRewardsRoi();
+
+      expect(result.rewards).toEqual([
+        { rewardId: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, unitCost: 100, timesRedeemed: 4, totalCost: 400, costSharePercent: 83 },
+        { rewardId: 'reward-2', name: 'Combo personal gratis', isActive: true, stampsCost: 8, pointsCost: null, unitCost: 80, timesRedeemed: 1, totalCost: 80, costSharePercent: 17 },
+      ]);
+      expect(result.totalCost).toBe(480);
+      expect(result.totalRevenue).toBe(8000);
+      expect(result.costToRevenuePercent).toBe(6); // 480 / 8000
+      expect(result.avgSpendRedeemers).toBe(900);
+      expect(result.avgSpendNonRedeemers).toBe(300);
+      // La señal clave: quienes canjean gastan L.600 más en promedio que quienes no.
+      expect(result.spendLift).toBe(600);
+    });
+  });
+
   describe('listRedemptions', () => {
     it('devuelve el listado paginado junto con el costo total (L.) de los canjes filtrados', async () => {
       prisma.redemption.findMany

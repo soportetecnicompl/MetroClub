@@ -312,6 +312,74 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Inteligencia de negocio: costo de cada premio vs. lo que realmente se está
+   * canjeando, para validar si el programa de lealtad se paga solo. No basta con
+   * "cuánto ha costado en total" (ya en el dashboard) — hay que ver premio por premio
+   * cuál concentra el gasto, y si los clientes que canjean gastan más que los que no
+   * (si no gastan más, el programa es puro costo sin ningún efecto de retención real).
+   */
+  async getRewardsRoi() {
+    const [rewards, redemptionCounts, revenueAgg, redeemersAgg, nonRedeemersAgg] = await Promise.all([
+      this.prisma.reward.findMany({
+        select: { id: true, name: true, isActive: true, stampsCost: true, pointsCost: true, monetaryValue: true },
+      }),
+      this.prisma.redemption.groupBy({ by: ['rewardId'], _count: true }),
+      this.prisma.client.aggregate({ where: { isDeleted: false }, _sum: { totalSpent: true } }),
+      this.prisma.client.aggregate({
+        where: { isDeleted: false, redemptions: { some: {} } },
+        _avg: { totalSpent: true },
+        _count: true,
+      }),
+      this.prisma.client.aggregate({
+        where: { isDeleted: false, redemptions: { none: {} } },
+        _avg: { totalSpent: true },
+        _count: true,
+      }),
+    ]);
+
+    const rewardStats = rewards
+      .map((reward) => {
+        const timesRedeemed = redemptionCounts.find((r) => r.rewardId === reward.id)?._count ?? 0;
+        const unitCost = reward.monetaryValue ? Number(reward.monetaryValue) : 0;
+        return {
+          rewardId: reward.id,
+          name: reward.name,
+          isActive: reward.isActive,
+          stampsCost: reward.stampsCost,
+          pointsCost: reward.pointsCost,
+          unitCost,
+          timesRedeemed,
+          totalCost: unitCost * timesRedeemed,
+        };
+      })
+      .sort((a, b) => b.totalCost - a.totalCost);
+
+    const totalCost = rewardStats.reduce((sum, r) => sum + r.totalCost, 0);
+    const totalRevenue = Number(revenueAgg._sum.totalSpent ?? 0);
+    const avgSpendRedeemers = Number(redeemersAgg._avg.totalSpent ?? 0);
+    const avgSpendNonRedeemers = Number(nonRedeemersAgg._avg.totalSpent ?? 0);
+
+    return {
+      rewards: rewardStats.map((r) => ({
+        ...r,
+        // % del costo total del programa que se va en este premio — para saber cuál "pesa" más.
+        costSharePercent: totalCost > 0 ? Math.round((r.totalCost / totalCost) * 100) : 0,
+      })),
+      totalCost,
+      totalRevenue,
+      // Cuánto del ingreso total de la base se está yendo en premios (entre menos, mejor).
+      costToRevenuePercent: totalRevenue > 0 ? Number(((totalCost / totalRevenue) * 100).toFixed(1)) : null,
+      avgSpendRedeemers,
+      avgSpendNonRedeemers,
+      redeemersCount: redeemersAgg._count,
+      nonRedeemersCount: nonRedeemersAgg._count,
+      // La señal real de ROI: ¿los que canjean premios gastan más que los que no? Si es
+      // negativo, el programa no está generando el comportamiento que se busca.
+      spendLift: avgSpendRedeemers - avgSpendNonRedeemers,
+    };
+  }
+
   async exportClientsCsv() {
     const clients = await this.prisma.client.findMany({ where: { isDeleted: false } });
     const header = 'id,name,whatsapp,stamps,points,lastVisitAt\n';
