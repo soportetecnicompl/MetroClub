@@ -45,7 +45,7 @@ export default function StaffPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const [scanning, setScanning] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'starting' | 'active' | 'error'>('idle');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -85,7 +85,7 @@ export default function StaffPage() {
     scanFrameRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    setScanning(false);
+    setCameraStatus('idle');
   };
 
   const handleQrDetected = async (clientId: string) => {
@@ -112,18 +112,23 @@ export default function StaffPage() {
   };
 
   const startScanning = async () => {
+    if (streamRef.current) return; // ya está corriendo
     setError(null);
+    setCameraStatus('starting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
-      setScanning(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      const video = videoRef.current;
+      if (!video) {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        return;
       }
+      video.srcObject = stream;
+      await video.play();
+      setCameraStatus('active');
 
       const tick = () => {
-        const video = videoRef.current;
         const canvas = canvasRef.current;
         if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
           canvas.width = video.videoWidth;
@@ -144,11 +149,20 @@ export default function StaffPage() {
       scanFrameRef.current = requestAnimationFrame(tick);
     } catch {
       setError('No se pudo acceder a la cámara. Revisa los permisos del navegador.');
-      setScanning(false);
+      setCameraStatus('error');
     }
   };
 
-  useEffect(() => stopScanning, []);
+  // La cámara se abre sola al llegar (o volver) al paso de búsqueda, y se apaga al salir de él.
+  useEffect(() => {
+    if (step === 'lookup') {
+      startScanning();
+    } else {
+      stopScanning();
+    }
+    return stopScanning;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const handleEnroll = async (event: FormEvent) => {
     event.preventDefault();
@@ -255,48 +269,55 @@ export default function StaffPage() {
             </span>
           </div>
 
-          {scanning ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div
+              style={{
+                position: 'relative',
+                borderRadius: 'var(--radius-sm)',
+                overflow: 'hidden',
+                background: '#000',
+                aspectRatio: '1 / 1',
+              }}
+            >
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <div
+                aria-hidden
                 style={{
-                  position: 'relative',
-                  borderRadius: 'var(--radius-sm)',
-                  overflow: 'hidden',
-                  background: '#000',
-                  aspectRatio: '1 / 1',
+                  position: 'absolute',
+                  inset: '15%',
+                  border: '3px solid var(--blue-100)',
+                  borderRadius: 12,
+                  boxShadow: '0 0 0 1000px rgba(0,0,0,0.35)',
                 }}
-              >
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <video
-                  ref={videoRef}
-                  muted
-                  playsInline
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
+              />
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+              {cameraStatus !== 'active' && (
                 <div
-                  aria-hidden
                   style={{
                     position: 'absolute',
-                    inset: '15%',
-                    border: '3px solid var(--blue-100)',
-                    borderRadius: 12,
-                    boxShadow: '0 0 0 1000px rgba(0,0,0,0.35)',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: 16,
+                    color: '#fff',
+                    fontSize: 13,
+                    background: 'rgba(0,0,0,0.55)',
                   }}
-                />
-                <canvas ref={canvasRef} style={{ display: 'none' }} />
-              </div>
-              <span style={{ fontSize: 13, textAlign: 'center', color: 'var(--black-60)' }}>
-                Apunta al código QR de la tarjeta digital del cliente (Google/Apple Wallet)
-              </span>
-              <button type="button" className="btn-secondary" onClick={stopScanning}>
-                Cancelar escaneo
-              </button>
+                >
+                  {cameraStatus === 'starting' && 'Iniciando cámara…'}
+                  {cameraStatus === 'error' && 'No se pudo acceder a la cámara. Revisa los permisos y recarga la página.'}
+                  {cameraStatus === 'idle' && 'Cámara detenida.'}
+                </div>
+              )}
             </div>
-          ) : (
-            <button type="button" className="btn-primary" onClick={startScanning} disabled={loading}>
-              📷 Escanear QR del cliente
-            </button>
-          )}
+            <span style={{ fontSize: 13, textAlign: 'center', color: 'var(--black-60)' }}>
+              Apunta al código QR de la tarjeta digital del cliente (Google/Apple Wallet)
+            </span>
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--black-60)', fontSize: 12 }}>
             <div style={{ flex: 1, height: 1, background: 'var(--black-10, #eee)' }} />
