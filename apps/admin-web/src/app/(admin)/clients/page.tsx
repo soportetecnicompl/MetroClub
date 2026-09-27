@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { authFetch, describeError } from '@/lib/api';
 
 interface ClientRow {
@@ -93,8 +94,12 @@ export default function ClientsPage() {
           </thead>
           <tbody>
             {(result?.data ?? []).map((client) => (
-              <tr key={client.id}>
-                <td>{client.name}</td>
+              <tr key={client.id} style={{ cursor: 'pointer' }}>
+                <td>
+                  <Link href={`/clients/${client.id}`} style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600 }}>
+                    {client.name}
+                  </Link>
+                </td>
                 <td>{client.whatsapp}</td>
                 <td>{client.stamps}</td>
                 <td>{client.points}</td>

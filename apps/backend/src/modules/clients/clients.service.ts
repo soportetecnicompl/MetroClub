@@ -114,8 +114,19 @@ export class ClientsService {
   /** RF-20: historial de actividad por cliente. */
   async getHistory(clientId: string) {
     const [visits, redemptions, whatsappMessages] = await Promise.all([
-      this.prisma.visit.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' } }),
-      this.prisma.redemption.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.visit.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        include: { complex: { select: { id: true, name: true } } },
+      }),
+      this.prisma.redemption.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          reward: { select: { id: true, name: true, monetaryValue: true } },
+          complex: { select: { id: true, name: true } },
+        },
+      }),
       this.prisma.whatsAppMessage.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' } }),
     ]);
     return { visits, redemptions, whatsappMessages };
