@@ -106,6 +106,9 @@ export default function StaffPage() {
       setTimeout(() => reset(), 4000);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo procesar el QR escaneado');
+      // Seguimos en el paso de búsqueda (el step no cambió), así que hay que reiniciar la
+      // cámara a mano: el efecto atado a `step` no se vuelve a disparar solo.
+      setTimeout(() => startScanning(), 2000);
     } finally {
       setLoading(false);
     }
