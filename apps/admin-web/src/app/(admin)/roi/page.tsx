@@ -9,7 +9,7 @@ interface RewardRoi {
   isActive: boolean;
   stampsCost: number | null;
   pointsCost: number | null;
-  unitCost: number;
+  currentUnitCost: number;
   timesRedeemed: number;
   totalCost: number;
   costSharePercent: number;
@@ -112,14 +112,20 @@ export default function RoiPage() {
           </div>
 
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>Costo por premio</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>Costo por premio</span>
+              <span style={{ fontSize: 13, color: 'var(--black-60)' }}>
+                &quot;Costo total&quot; es lo que REALMENTE se pagó en cada canje, no el precio actual × cantidad — si
+                editaste el precio de un premio, los canjes de antes no cambian.
+              </span>
+            </div>
             <table>
               <thead>
                 <tr>
                   <th>Premio</th>
-                  <th>Costo unitario</th>
+                  <th>Precio actual</th>
                   <th>Veces canjeado</th>
-                  <th>Costo total</th>
+                  <th>Costo total (real)</th>
                   <th>% del costo</th>
                   <th>Estado</th>
                 </tr>
@@ -128,7 +134,7 @@ export default function RoiPage() {
                 {summary.rewards.map((reward) => (
                   <tr key={reward.rewardId}>
                     <td>{reward.name}</td>
-                    <td>L. {reward.unitCost.toFixed(2)}</td>
+                    <td>L. {reward.currentUnitCost.toFixed(2)}</td>
                     <td>{reward.timesRedeemed}</td>
                     <td>L. {reward.totalCost.toFixed(2)}</td>
                     <td>{reward.costSharePercent}%</td>

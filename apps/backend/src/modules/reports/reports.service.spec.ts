@@ -1,11 +1,11 @@
-import { ReportsService } from './reports.service';
+import { ReportsService, segmentWhere } from './reports.service';
 
 describe('ReportsService', () => {
   let service: ReportsService;
   let prisma: {
     client: { count: jest.Mock; findMany: jest.Mock; aggregate: jest.Mock; findUniqueOrThrow: jest.Mock };
     visit: { count: jest.Mock; groupBy: jest.Mock };
-    redemption: { count: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock };
+    redemption: { count: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock; aggregate: jest.Mock };
     reward: { findMany: jest.Mock };
     whatsAppMessage: { count: jest.Mock };
     complex: { findMany: jest.Mock };
@@ -15,7 +15,7 @@ describe('ReportsService', () => {
     prisma = {
       client: { count: jest.fn(), findMany: jest.fn(), aggregate: jest.fn(), findUniqueOrThrow: jest.fn() },
       visit: { count: jest.fn(), groupBy: jest.fn() },
-      redemption: { count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn() },
+      redemption: { count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn(), aggregate: jest.fn() },
       reward: { findMany: jest.fn() },
       whatsAppMessage: { count: jest.fn() },
       complex: { findMany: jest.fn() },
@@ -47,11 +47,9 @@ describe('ReportsService', () => {
         ])
         .mockResolvedValueOnce([{ complexId: 'complex-1', _count: 20 }]);
       prisma.complex.findMany.mockResolvedValue([{ id: 'complex-1', name: 'Cinépolis City Mall' }]);
-      prisma.redemption.findMany.mockResolvedValue([
-        { reward: { monetaryValue: 150 } },
-        { reward: { monetaryValue: 80 } },
-        { reward: { monetaryValue: null } },
-      ]);
+      // Costo real de los canjes: suma de costAtRedemption (precio congelado), no del
+      // precio actual del premio.
+      prisma.redemption.aggregate.mockResolvedValue({ _sum: { costAtRedemption: 230 } });
       prisma.client.aggregate
         .mockResolvedValueOnce({ _sum: { points: 340, stamps: 58 } })
         .mockResolvedValueOnce({ _sum: { totalSpent: 4500 } });
@@ -83,7 +81,7 @@ describe('ReportsService', () => {
       prisma.whatsAppMessage.count.mockResolvedValue(0);
       prisma.visit.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
       prisma.complex.findMany.mockResolvedValue([]);
-      prisma.redemption.findMany.mockResolvedValue([]);
+      prisma.redemption.aggregate.mockResolvedValue({ _sum: { costAtRedemption: null } });
       prisma.client.aggregate
         .mockResolvedValueOnce({ _sum: { points: null, stamps: null } })
         .mockResolvedValueOnce({ _sum: { totalSpent: null } });
@@ -135,6 +133,36 @@ describe('ReportsService', () => {
         }),
       );
     });
+
+    it('segmenta por día calendario exacto — sin ventanas de desacuerdo entre el badge y el filtro', () => {
+      // Regresión: antes daysSince truncaba con floor() sobre una diferencia continua
+      // mientras segmentWhere comparaba contra un instante continuo, así que un cliente
+      // que visitó hace 30 días y unas horas se etiquetaba "activo" pero el filtro lo
+      // devolvía en "en_riesgo". Se prueba exhaustivamente cada hora de 100 días.
+      const now = new Date('2026-09-27T08:20:00.000Z');
+      const DAY_MS = 24 * 60 * 60 * 1000;
+
+      // Se valida directamente contra `segmentWhere`: por cada hora posible, el segmento
+      // que le correspondería a un cliente por su recencia debe coincidir con que ese
+      // mismo cliente efectivamente califique en el `where` que arma segmentWhere.
+      const matches = (date: Date, cond: Record<string, unknown>): boolean => {
+        const gte = cond.gte as Date | undefined;
+        const lt = cond.lt as Date | undefined;
+        if (gte && date < gte) return false;
+        if (lt && date >= lt) return false;
+        return true;
+      };
+
+      for (let hours = 0; hours <= 100 * 24; hours += 1) {
+        const lastVisitAt = new Date(now.getTime() - hours * 60 * 60 * 1000);
+        const days = Math.round(
+          (new Date(now).setHours(0, 0, 0, 0) - new Date(lastVisitAt).setHours(0, 0, 0, 0)) / DAY_MS,
+        );
+        const expectedSegment = days <= 30 ? 'active' : days <= 60 ? 'at_risk' : days <= 90 ? 'dormant' : 'lost';
+        const cond = segmentWhere(expectedSegment, now) as { lastVisitAt: Record<string, unknown> };
+        expect(matches(lastVisitAt, cond.lastVisitAt)).toBe(true);
+      }
+    });
   });
 
   describe('getClientInsights', () => {
@@ -145,7 +173,7 @@ describe('ReportsService', () => {
         lastVisitAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), // 40 días -> at_risk
         _count: { visits: 4, redemptions: 1 },
       });
-      prisma.redemption.findMany.mockResolvedValue([{ reward: { monetaryValue: 150 } }]);
+      prisma.redemption.aggregate.mockResolvedValue({ _sum: { costAtRedemption: 150 } });
       prisma.reward.findMany.mockResolvedValue([
         { name: 'Combo personal gratis', stampsCost: 8 },
         { name: 'Entrada VIP', stampsCost: 12 },
@@ -165,14 +193,17 @@ describe('ReportsService', () => {
   });
 
   describe('getRewardsRoi', () => {
-    it('desglosa el costo por premio y compara el gasto de quienes canjean vs. quienes no (validación de ROI)', async () => {
+    it('desglosa el costo REAL por premio (no el precio actual × conteo) y compara el gasto de quienes canjean vs. quienes no', async () => {
       prisma.reward.findMany.mockResolvedValue([
-        { id: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 100 },
+        { id: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 120 },
         { id: 'reward-2', name: 'Combo personal gratis', isActive: true, stampsCost: 8, pointsCost: null, monetaryValue: 80 },
       ]);
+      // reward-1 costó 100 en sus primeros 3 canjes y el admin subió el precio a 120
+      // ANTES del 4to canje — el costo total real (100*3 + 120*1 = 420) no es
+      // simplemente monetaryValue actual (120) × 4 (=480). Por eso se usa el _sum real.
       prisma.redemption.groupBy.mockResolvedValue([
-        { rewardId: 'reward-1', _count: 4 },
-        { rewardId: 'reward-2', _count: 1 },
+        { rewardId: 'reward-1', _count: 4, _sum: { costAtRedemption: 420 } },
+        { rewardId: 'reward-2', _count: 1, _sum: { costAtRedemption: 80 } },
       ]);
       prisma.client.aggregate
         .mockResolvedValueOnce({ _sum: { totalSpent: 8000 } }) // ingresos totales de la base
@@ -182,12 +213,12 @@ describe('ReportsService', () => {
       const result = await service.getRewardsRoi();
 
       expect(result.rewards).toEqual([
-        { rewardId: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, unitCost: 100, timesRedeemed: 4, totalCost: 400, costSharePercent: 83 },
-        { rewardId: 'reward-2', name: 'Combo personal gratis', isActive: true, stampsCost: 8, pointsCost: null, unitCost: 80, timesRedeemed: 1, totalCost: 80, costSharePercent: 17 },
+        { rewardId: 'reward-1', name: 'Entrada 2D gratis', isActive: true, stampsCost: 5, pointsCost: null, currentUnitCost: 120, timesRedeemed: 4, totalCost: 420, costSharePercent: 84 },
+        { rewardId: 'reward-2', name: 'Combo personal gratis', isActive: true, stampsCost: 8, pointsCost: null, currentUnitCost: 80, timesRedeemed: 1, totalCost: 80, costSharePercent: 16 },
       ]);
-      expect(result.totalCost).toBe(480);
+      expect(result.totalCost).toBe(500); // 420 + 80, NO 120*4 + 80*1 = 560
       expect(result.totalRevenue).toBe(8000);
-      expect(result.costToRevenuePercent).toBe(6); // 480 / 8000
+      expect(result.costToRevenuePercent).toBe(6.3); // 500 / 8000
       expect(result.avgSpendRedeemers).toBe(900);
       expect(result.avgSpendNonRedeemers).toBe(300);
       // La señal clave: quienes canjean gastan L.600 más en promedio que quienes no.
@@ -196,11 +227,10 @@ describe('ReportsService', () => {
   });
 
   describe('listRedemptions', () => {
-    it('devuelve el listado paginado junto con el costo total (L.) de los canjes filtrados', async () => {
-      prisma.redemption.findMany
-        .mockResolvedValueOnce([{ id: 'redemption-1' }])
-        .mockResolvedValueOnce([{ reward: { monetaryValue: 150 } }]);
+    it('devuelve el listado paginado junto con el costo total real (L.) de los canjes filtrados', async () => {
+      prisma.redemption.findMany.mockResolvedValue([{ id: 'redemption-1' }]);
       prisma.redemption.count.mockResolvedValue(1);
+      prisma.redemption.aggregate.mockResolvedValue({ _sum: { costAtRedemption: 150 } });
 
       const result = await service.listRedemptions({ page: 1, limit: 20 });
 

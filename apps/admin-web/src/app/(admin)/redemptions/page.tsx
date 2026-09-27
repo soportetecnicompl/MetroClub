@@ -6,8 +6,9 @@ import { authFetch, describeError } from '@/lib/api';
 interface RedemptionRow {
   id: string;
   createdAt: string;
+  costAtRedemption: string | null;
   client: { id: string; name: string; whatsapp: string };
-  reward: { id: string; name: string; stampsCost: number | null; pointsCost: number | null; monetaryValue: string | null };
+  reward: { id: string; name: string; stampsCost: number | null; pointsCost: number | null };
   complex: { id: string; name: string } | null;
 }
 
@@ -64,7 +65,7 @@ export default function RedemptionsPage() {
               <th>Cliente</th>
               <th>Premio</th>
               <th>Costo</th>
-              <th>Valor (L.)</th>
+              <th>Valor pagado (L.)</th>
               <th>Complejo</th>
             </tr>
           </thead>
@@ -84,7 +85,8 @@ export default function RedemptionsPage() {
                   {redemption.reward?.pointsCost ? `${redemption.reward.pointsCost} pts` : ''}
                   {!redemption.reward?.stampsCost && !redemption.reward?.pointsCost ? '—' : ''}
                 </td>
-                <td>{redemption.reward?.monetaryValue ? `L. ${Number(redemption.reward.monetaryValue).toFixed(2)}` : '—'}</td>
+                {/* Precio congelado al momento del canje — no el precio actual del premio, que puede haber cambiado. */}
+                <td>{redemption.costAtRedemption ? `L. ${Number(redemption.costAtRedemption).toFixed(2)}` : '—'}</td>
                 <td>{redemption.complex?.name ?? '—'}</td>
               </tr>
             ))}

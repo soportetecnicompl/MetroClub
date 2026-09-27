@@ -124,7 +124,7 @@ export class ClientsService {
         where: { clientId },
         orderBy: { createdAt: 'desc' },
         include: {
-          reward: { select: { id: true, name: true, monetaryValue: true } },
+          reward: { select: { id: true, name: true } },
           complex: { select: { id: true, name: true } },
         },
       }),

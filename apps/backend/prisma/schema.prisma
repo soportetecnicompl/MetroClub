@@ -201,6 +201,10 @@ model Redemption {
   status    RedemptionStatus @default(PENDING)
   createdAt DateTime         @default(now())
   redeemedAt DateTime?
+  /// Copia del monetaryValue del premio en el momento exacto del canje. Sin esto, si
+  /// un admin edita después el precio del premio, TODO el historial de costos (reportes,
+  /// ROI) cambiaría retroactivamente para reflejar el precio nuevo — falso e inexacto.
+  costAtRedemption Decimal? @db.Decimal(10, 2)
 
   client  Client   @relation(fields: [clientId], references: [id])
   reward  Reward   @relation(fields: [rewardId], references: [id])

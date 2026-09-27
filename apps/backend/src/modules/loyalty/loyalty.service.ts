@@ -135,6 +135,9 @@ export class LoyaltyService {
           complexId,
           status: RedemptionStatus.REDEEMED,
           redeemedAt: new Date(),
+          // Copia el precio del premio AHORA — si luego se edita el premio, este canje
+          // conserva su costo real histórico en vez de recalcularse con el precio nuevo.
+          costAtRedemption: reward.monetaryValue,
         },
       });
 

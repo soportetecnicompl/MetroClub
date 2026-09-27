@@ -65,6 +65,11 @@ describe('LoyaltyService', () => {
       // Sin esto el pase de Wallet se queda con los sellos/puntos viejos y el cliente
       // no tiene forma de saber si el canje se aplicó (ni cuánto se ahorró).
       expect(walletService.pushRedemptionUpdate).toHaveBeenCalledWith('client-1', 'Entrada 2D gratis', 150);
+      // Copia el precio AHORA — si el admin edita el premio después, este canje no debe
+      // recalcularse con el precio nuevo (ver reports.service.getRewardsRoi).
+      expect(tx.redemption.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ costAtRedemption: 150 }) }),
+      );
     });
 
     it('rechaza el canje si el cliente no tiene sellos suficientes', async () => {

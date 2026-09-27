@@ -14,16 +14,18 @@ function normalizePagination({ page, limit }: Pagination) {
   };
 }
 
-/** Suma del valor monetario (L.) de un conjunto de canjes — para saber cuánto ha "costado" el programa. */
+/**
+ * Suma del costo real (L.) de un conjunto de canjes — para saber cuánto ha "costado" el
+ * programa. Usa `costAtRedemption` (precio congelado al momento del canje), NUNCA el
+ * `reward.monetaryValue` actual: si un admin edita después el precio de un premio, la
+ * suma no debe cambiar retroactivamente para canjes ya hechos.
+ */
 async function sumRedemptionCost(
   prisma: PrismaService,
   where: Prisma.RedemptionWhereInput,
 ): Promise<number> {
-  const redemptions = await prisma.redemption.findMany({
-    where,
-    select: { reward: { select: { monetaryValue: true } } },
-  });
-  return redemptions.reduce((sum, r) => sum + (r.reward.monetaryValue ? Number(r.reward.monetaryValue) : 0), 0);
+  const result = await prisma.redemption.aggregate({ where, _sum: { costAtRedemption: true } });
+  return Number(result._sum.costAtRedemption ?? 0);
 }
 
 export type ClientSegment = 'active' | 'at_risk' | 'dormant' | 'lost' | 'never';
@@ -37,8 +39,24 @@ export type ClientSegment = 'active' | 'at_risk' | 'dormant' | 'lost' | 'never';
 const SEGMENT_THRESHOLDS_DAYS = { active: 30, atRisk: 60, dormant: 90 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Medianoche del día calendario de `date` — ancla tanto `daysSince` como `segmentWhere`
+ * a los mismos límites de día calendario. Antes `daysSince` truncaba con floor() una
+ * diferencia continua mientras `segmentWhere` comparaba contra un instante continuo
+ * (now - N*DAY_MS): con horas de por medio (p. ej. una visita hace 30.5 días), el badge
+ * mostrado por daysSince decía "activo" pero el filtro segmentWhere lo excluía de
+ * "activo" y lo devolvía en "en riesgo" — un cliente que se veía activo pero no
+ * aparecía al filtrar por activos. Al anclar ambos a medianoche, "días desde" queda como
+ * un entero exacto de días calendario y el filtro usa el mismo corte, sin desacuerdos.
+ */
+function startOfDay(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
 function daysSince(date: Date, now: Date): number {
-  return Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+  return Math.round((startOfDay(now).getTime() - startOfDay(date).getTime()) / DAY_MS);
 }
 
 function computeSegment(lastVisitAt: Date | null, now: Date): ClientSegment {
@@ -60,7 +78,9 @@ const SEGMENT_RECOMMENDATIONS: Record<ClientSegment, string> = {
 };
 
 export function segmentWhere(segment: ClientSegment, now: Date): Prisma.ClientWhereInput {
-  const before = (days: number) => new Date(now.getTime() - days * DAY_MS);
+  // Medianoche de "hace N días" — cualquier lastVisitAt en o después de ese instante
+  // cae en un día calendario a <=N días de hoy, exactamente lo que evalúa daysSince.
+  const before = (days: number) => new Date(startOfDay(now).getTime() - days * DAY_MS);
   switch (segment) {
     case 'never':
       return { lastVisitAt: null };
@@ -320,11 +340,13 @@ export class ReportsService {
    * (si no gastan más, el programa es puro costo sin ningún efecto de retención real).
    */
   async getRewardsRoi() {
-    const [rewards, redemptionCounts, revenueAgg, redeemersAgg, nonRedeemersAgg] = await Promise.all([
+    const [rewards, redemptionsByReward, revenueAgg, redeemersAgg, nonRedeemersAgg] = await Promise.all([
       this.prisma.reward.findMany({
         select: { id: true, name: true, isActive: true, stampsCost: true, pointsCost: true, monetaryValue: true },
       }),
-      this.prisma.redemption.groupBy({ by: ['rewardId'], _count: true }),
+      // _sum.costAtRedemption (no monetaryValue actual × conteo): si el precio del premio
+      // cambió después de algunos canjes, esto sigue reflejando lo que REALMENTE costó.
+      this.prisma.redemption.groupBy({ by: ['rewardId'], _count: true, _sum: { costAtRedemption: true } }),
       this.prisma.client.aggregate({ where: { isDeleted: false }, _sum: { totalSpent: true } }),
       this.prisma.client.aggregate({
         where: { isDeleted: false, redemptions: { some: {} } },
@@ -340,17 +362,18 @@ export class ReportsService {
 
     const rewardStats = rewards
       .map((reward) => {
-        const timesRedeemed = redemptionCounts.find((r) => r.rewardId === reward.id)?._count ?? 0;
-        const unitCost = reward.monetaryValue ? Number(reward.monetaryValue) : 0;
+        const agg = redemptionsByReward.find((r) => r.rewardId === reward.id);
         return {
           rewardId: reward.id,
           name: reward.name,
           isActive: reward.isActive,
           stampsCost: reward.stampsCost,
           pointsCost: reward.pointsCost,
-          unitCost,
-          timesRedeemed,
-          totalCost: unitCost * timesRedeemed,
+          // Precio configurado HOY (referencia) — puede no coincidir con lo que costaron
+          // canjes pasados si el precio cambió; para eso está totalCost, ya exacto.
+          currentUnitCost: reward.monetaryValue ? Number(reward.monetaryValue) : 0,
+          timesRedeemed: agg?._count ?? 0,
+          totalCost: Number(agg?._sum.costAtRedemption ?? 0),
         };
       })
       .sort((a, b) => b.totalCost - a.totalCost);
