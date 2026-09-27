@@ -125,6 +125,7 @@ model Complex {
   ingredients     Ingredient[]
   products        Product[]
   concessionSales ConcessionSale[]
+  ticketBatches   TicketBatch[]
 
   @@map("complexes")
 }
@@ -486,6 +487,7 @@ model Ticket {
   reassignedTo      Ticket?                  @relation("TicketReassignment", fields: [reassignedToId], references: [id])
   reassignedFrom    Ticket?                  @relation("TicketReassignment")
   reassignmentOffer TicketReassignmentOffer?
+  voucherRedemption Voucher?
 
   @@index([showtimeId])
   @@index([clientId])
@@ -674,4 +676,70 @@ model AuditLog {
   client Client? @relation(fields: [clientId], references: [id])
 
   @@map("audit_logs")
+}
+
+/// Empresa cliente B2B (renta salas para eventos privados, o compra lotes de boletos de
+/// cortesía para regalar a sus empleados/clientes).
+model CorporateAccount {
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  batches TicketBatch[]
+
+  @@map("corporate_accounts")
+}
+
+enum VoucherStatus {
+  /// Emitido, todavía no se ha canjeado por un boleto.
+  ISSUED
+  /// Ya se convirtió en un boleto real (butaca + función elegidas al canjear).
+  REDEEMED
+  /// Anulado a mano (ej. lote cancelado, fraude) — ya no se puede canjear.
+  VOID
+}
+
+/// Lote de boletos de cortesía que una empresa B2B compra o recibe (ej. "10 boletos para
+/// Empresa A"). No amarra los boletos a una función específica: cada voucher se convierte
+/// en un boleto real (con su propia butaca y horario) hasta que alguien lo canjea en taquilla.
+model TicketBatch {
+  id                 String    @id @default(cuid())
+  corporateAccountId String
+  complexId          String
+  quantity           Int
+  note               String?
+  expiresAt          DateTime?
+  createdAt          DateTime  @default(now())
+
+  corporateAccount CorporateAccount @relation(fields: [corporateAccountId], references: [id])
+  complex          Complex          @relation(fields: [complexId], references: [id])
+  vouchers         Voucher[]
+
+  @@index([corporateAccountId])
+  @@map("ticket_batches")
+}
+
+/// Un boleto de cortesía individual dentro de un lote — se identifica por un QR propio
+/// (firmado igual que el de Ticket, pero con su propio namespace para no confundirse con
+/// un QR de boleto real) y se "quema" al canjearse por un boleto real en taquilla.
+model Voucher {
+  id               String        @id @default(cuid())
+  batchId          String
+  status           VoucherStatus @default(ISSUED)
+  qrToken          String        @unique
+  redeemedTicketId String?       @unique
+  redeemedAt       DateTime?
+  voidedAt         DateTime?
+  createdAt        DateTime      @default(now())
+
+  batch          TicketBatch @relation(fields: [batchId], references: [id])
+  redeemedTicket Ticket?     @relation(fields: [redeemedTicketId], references: [id])
+
+  @@index([batchId])
+  @@map("vouchers")
 }

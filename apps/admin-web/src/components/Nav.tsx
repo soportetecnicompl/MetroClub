@@ -11,6 +11,7 @@ const LINKS = [
   { href: '/catalog', label: 'Cartelera' },
   { href: '/promotions', label: 'Promociones' },
   { href: '/inventory', label: 'Confitería' },
+  { href: '/corporate', label: 'Corporativo B2B' },
   { href: '/clients', label: 'Clientes' },
   { href: '/redemptions', label: 'Canjes' },
   { href: '/roi', label: 'ROI de premios' },

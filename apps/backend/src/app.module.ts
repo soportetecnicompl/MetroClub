@@ -14,6 +14,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { PublicModule } from './modules/public/public.module';
 import { TicketingModule } from './modules/ticketing/ticketing.module';
 import { ConcessionsModule } from './modules/concessions/concessions.module';
+import { CorporateModule } from './modules/corporate/corporate.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ConcessionsModule } from './modules/concessions/concessions.module';
     PublicModule,
     TicketingModule,
     ConcessionsModule,
+    CorporateModule,
   ],
 })
 export class AppModule {}

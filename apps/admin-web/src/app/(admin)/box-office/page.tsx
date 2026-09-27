@@ -97,7 +97,7 @@ function QrCanvas({ value }: { value: string }) {
 }
 
 export default function BoxOfficePage() {
-  const [mode, setMode] = useState<'sell' | 'scan' | 'concessions'>('sell');
+  const [mode, setMode] = useState<'sell' | 'scan' | 'concessions' | 'voucher'>('sell');
 
   const [complexes, setComplexes] = useState<Complex[]>([]);
   const [complexId, setComplexId] = useState('');
@@ -248,6 +248,9 @@ export default function BoxOfficePage() {
           >
             Confitería
           </button>
+          <button className={mode === 'voucher' ? 'btn-primary' : 'btn-secondary'} onClick={() => setMode('voucher')}>
+            Voucher B2B
+          </button>
         </div>
       </div>
 
@@ -257,6 +260,8 @@ export default function BoxOfficePage() {
         <ScanTickets />
       ) : mode === 'concessions' ? (
         <SellConcessions complexId={complexId} complexes={complexes} onComplexChange={setComplexId} />
+      ) : mode === 'voucher' ? (
+        <RedeemVoucher complexId={complexId} complexes={complexes} movies={movies} onComplexChange={setComplexId} />
       ) : (
         <>
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -686,6 +691,207 @@ function SellConcessions({
           </ul>
           <button className="btn-secondary" onClick={reset}>
             Nueva venta
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RedeemVoucher({
+  complexId,
+  complexes,
+  movies,
+  onComplexChange,
+}: {
+  complexId: string;
+  complexes: Complex[];
+  movies: Movie[];
+  onComplexChange: (id: string) => void;
+}) {
+  const [movieId, setMovieId] = useState('');
+  const [showtimes, setShowtimes] = useState<ShowtimeRow[]>([]);
+  const [showtimeId, setShowtimeId] = useState('');
+  const [seatMap, setSeatMap] = useState<SeatMap | null>(null);
+  const [heldSeatId, setHeldSeatId] = useState<string | null>(null);
+
+  const [qrToken, setQrToken] = useState('');
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!complexId) return;
+    const params = new URLSearchParams({ complexId });
+    if (movieId) params.set('movieId', movieId);
+    authFetch<ShowtimeRow[]>(`/ticketing/showtimes?${params.toString()}`)
+      .then(setShowtimes)
+      .catch((err) => setError(describeError(err, 'No se pudieron cargar las funciones')));
+  }, [complexId, movieId]);
+
+  const loadSeatMap = (id: string) => {
+    authFetch<SeatMap>(`/ticketing/showtimes/${id}/seat-map`)
+      .then(setSeatMap)
+      .catch((err) => setError(describeError(err, 'No se pudo cargar el mapa de butacas')));
+  };
+
+  const selectShowtime = (id: string) => {
+    setShowtimeId(id);
+    setHeldSeatId(null);
+    setTicket(null);
+    loadSeatMap(id);
+  };
+
+  const toggleSeat = async (seat: SeatMapSeat) => {
+    setError(null);
+    try {
+      if (seat.status === 'AVAILABLE') {
+        if (heldSeatId) await authFetch(`/ticketing/showtimes/${showtimeId}/holds/${heldSeatId}`, { method: 'DELETE' });
+        await authFetch(`/ticketing/showtimes/${showtimeId}/holds`, {
+          method: 'POST',
+          body: JSON.stringify({ seatId: seat.seatId }),
+        });
+        setHeldSeatId(seat.seatId);
+      } else if (heldSeatId === seat.seatId) {
+        await authFetch(`/ticketing/showtimes/${showtimeId}/holds/${seat.seatId}`, { method: 'DELETE' });
+        setHeldSeatId(null);
+      } else {
+        return;
+      }
+      loadSeatMap(showtimeId);
+    } catch (err) {
+      setError(describeError(err, 'No se pudo actualizar la butaca'));
+      loadSeatMap(showtimeId);
+    }
+  };
+
+  const confirmRedeem = async () => {
+    if (!heldSeatId || !qrToken) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await authFetch<Ticket>('/corporate/vouchers/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ qrToken: qrToken.trim(), showtimeId, seatId: heldSeatId }),
+      });
+      setTicket(result);
+      setHeldSeatId(null);
+    } catch (err) {
+      setError(describeError(err, 'No se pudo canjear el voucher'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => {
+    setTicket(null);
+    setQrToken('');
+    if (showtimeId) loadSeatMap(showtimeId);
+  };
+
+  const seatColor = (status: SeatMapSeat['status'], seatId: string) => {
+    if (status === 'SOLD') return { background: 'var(--black-20)', color: 'var(--black-40)', cursor: 'not-allowed' };
+    if (status === 'HELD' && heldSeatId === seatId) {
+      return { background: 'var(--blue-100, #2563eb)', color: '#fff', cursor: 'pointer' };
+    }
+    if (status === 'HELD') return { background: '#fff3cd', color: '#8a6d1a', cursor: 'not-allowed' };
+    return { background: 'var(--success-10)', color: 'var(--success-150)', cursor: 'pointer' };
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <select value={complexId} onChange={(e) => onComplexChange(e.target.value)}>
+          {complexes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} — {c.city}
+            </option>
+          ))}
+        </select>
+        <select value={movieId} onChange={(e) => setMovieId(e.target.value)}>
+          <option value="">Todas las películas</option>
+          {movies.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.title}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+
+      {!ticket ? (
+        <>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>Funciones</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {showtimes.map((s) => (
+                <button
+                  key={s.id}
+                  className={showtimeId === s.id ? 'btn-primary' : 'btn-secondary'}
+                  onClick={() => selectShowtime(s.id)}
+                >
+                  {s.movie.title} · {s.screen.name} · {new Date(s.startsAt).toLocaleString('es-HN')} · {s.format}
+                </button>
+              ))}
+              {showtimes.length === 0 && <span style={{ color: 'var(--black-60)' }}>No hay funciones para este filtro.</span>}
+            </div>
+          </div>
+
+          {seatMap && (
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>
+                {seatMap.movie} — {seatMap.screen} — {new Date(seatMap.startsAt).toLocaleString('es-HN')}
+              </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {seatMap.seats.map((seat) => (
+                  <button
+                    key={seat.seatId}
+                    onClick={() => toggleSeat(seat)}
+                    style={{
+                      width: 48,
+                      height: 40,
+                      borderRadius: 'var(--radius-sm)',
+                      border: 'none',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      ...seatColor(seat.status, seat.seatId),
+                    }}
+                    title={`${seat.row}${seat.number} — ${seat.status}`}
+                  >
+                    {seat.row}
+                    {seat.number}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  placeholder="Código del voucher (QR escaneado o pegado)"
+                  value={qrToken}
+                  onChange={(e) => setQrToken(e.target.value)}
+                  style={{ minWidth: 320 }}
+                />
+                <button
+                  className="btn-primary"
+                  disabled={!heldSeatId || !qrToken || loading}
+                  onClick={confirmRedeem}
+                >
+                  {loading ? 'Canjeando…' : 'Canjear voucher'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Voucher canjeado — boleto de cortesía emitido</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 12, border: '1px solid var(--black-10)', borderRadius: 'var(--radius-sm)', width: 'fit-content' }}>
+            <QrCanvas value={ticket.qrToken} />
+            <span style={{ fontSize: 13, color: 'var(--success-150)' }}>Cortesía B2B — L. 0.00</span>
+          </div>
+          <button className="btn-secondary" onClick={reset}>
+            Canjear otro
           </button>
         </div>
       )}
