@@ -10,6 +10,12 @@ interface TopComplex {
   visits: number;
 }
 
+interface TopReward {
+  rewardId: string;
+  name: string;
+  redemptions: number;
+}
+
 interface DashboardSummary {
   activeClients: number;
   totalVisits: number;
@@ -19,6 +25,10 @@ interface DashboardSummary {
   retentionRate: number;
   avgVisitsPerClient: number;
   topComplexes: TopComplex[];
+  topRewards: TopReward[];
+  totalRedemptionCost: number;
+  pointsOutstanding: number;
+  stampsOutstanding: number;
 }
 
 const TILES: { key: keyof DashboardSummary; label: string; format?: (v: number) => string }[] = [
@@ -29,6 +39,9 @@ const TILES: { key: keyof DashboardSummary; label: string; format?: (v: number) 
   { key: 'retentionRate', label: 'Tasa de retorno', format: (v) => `${v}%` },
   { key: 'avgVisitsPerClient', label: 'Visitas promedio / cliente' },
   { key: 'reviewsRequested', label: 'Reseñas solicitadas' },
+  { key: 'totalRedemptionCost', label: 'Costo del programa (L.)', format: (v) => `L. ${v.toFixed(2)}` },
+  { key: 'pointsOutstanding', label: 'Puntos sin canjear' },
+  { key: 'stampsOutstanding', label: 'Sellos sin canjear' },
 ];
 
 export default function DashboardPage() {
@@ -112,6 +125,33 @@ export default function DashboardPage() {
               <tr>
                 <td colSpan={2} style={{ color: 'var(--black-60)' }}>
                   Aún no hay visitas registradas.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>Premios más canjeados</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Premio</th>
+              <th>Canjes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(summary?.topRewards ?? []).map((reward) => (
+              <tr key={reward.rewardId}>
+                <td>{reward.name}</td>
+                <td>{reward.redemptions}</td>
+              </tr>
+            ))}
+            {summary && summary.topRewards.length === 0 && (
+              <tr>
+                <td colSpan={2} style={{ color: 'var(--black-60)' }}>
+                  Aún no hay canjes registrados.
                 </td>
               </tr>
             )}

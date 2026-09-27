@@ -7,6 +7,8 @@ import { clearSession, getUser } from '@/lib/auth';
 const LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/staff', label: 'Staff' },
+  { href: '/clients', label: 'Clientes' },
+  { href: '/redemptions', label: 'Canjes' },
   { href: '/complexes', label: 'Complejos' },
   { href: '/loyalty', label: 'Lealtad' },
   { href: '/templates', label: 'Plantillas WhatsApp' },
