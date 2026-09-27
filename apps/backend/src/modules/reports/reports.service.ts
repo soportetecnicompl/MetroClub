@@ -26,14 +26,65 @@ async function sumRedemptionCost(
   return redemptions.reduce((sum, r) => sum + (r.reward.monetaryValue ? Number(r.reward.monetaryValue) : 0), 0);
 }
 
+export type ClientSegment = 'active' | 'at_risk' | 'dormant' | 'lost' | 'never';
+
+/**
+ * Umbrales de recencia (días desde la última visita) para segmentar la base:
+ * activo = viene seguido, en_riesgo/dormido = candidato a win-back, perdido = ya se fue.
+ * Único origen de verdad — tanto el filtro de /reports/clients como los conteos del
+ * dashboard usan estos mismos números para no desalinearse.
+ */
+const SEGMENT_THRESHOLDS_DAYS = { active: 30, atRisk: 60, dormant: 90 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function daysSince(date: Date, now: Date): number {
+  return Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+}
+
+function computeSegment(lastVisitAt: Date | null, now: Date): ClientSegment {
+  if (!lastVisitAt) return 'never';
+  const days = daysSince(lastVisitAt, now);
+  if (days <= SEGMENT_THRESHOLDS_DAYS.active) return 'active';
+  if (days <= SEGMENT_THRESHOLDS_DAYS.atRisk) return 'at_risk';
+  if (days <= SEGMENT_THRESHOLDS_DAYS.dormant) return 'dormant';
+  return 'lost';
+}
+
+export function segmentWhere(segment: ClientSegment, now: Date): Prisma.ClientWhereInput {
+  const before = (days: number) => new Date(now.getTime() - days * DAY_MS);
+  switch (segment) {
+    case 'never':
+      return { lastVisitAt: null };
+    case 'active':
+      return { lastVisitAt: { gte: before(SEGMENT_THRESHOLDS_DAYS.active) } };
+    case 'at_risk':
+      return {
+        lastVisitAt: { lt: before(SEGMENT_THRESHOLDS_DAYS.active), gte: before(SEGMENT_THRESHOLDS_DAYS.atRisk) },
+      };
+    case 'dormant':
+      return {
+        lastVisitAt: { lt: before(SEGMENT_THRESHOLDS_DAYS.atRisk), gte: before(SEGMENT_THRESHOLDS_DAYS.dormant) },
+      };
+    case 'lost':
+      return { lastVisitAt: { lt: before(SEGMENT_THRESHOLDS_DAYS.dormant) } };
+  }
+}
+
 /** RF-17: dashboard de métricas y KPIs. RF-19: exportación de base de clientes. */
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Lista paginada de clientes con sus sellos/puntos — para ver quién es quién más allá del CSV. */
-  async listClients(params: Pagination & { search?: string; sortBy?: 'stamps' | 'points' | 'lastVisitAt' | 'createdAt' }) {
+  /** Lista paginada de clientes con sellos/puntos/gasto y su segmento de recencia. */
+  async listClients(
+    params: Pagination & {
+      search?: string;
+      sortBy?: 'stamps' | 'points' | 'lastVisitAt' | 'createdAt' | 'totalSpent';
+      segment?: ClientSegment;
+    },
+  ) {
     const { page, limit } = normalizePagination(params);
+    const now = new Date();
     const where: Prisma.ClientWhereInput = {
       isDeleted: false,
       ...(params.search
@@ -44,9 +95,10 @@ export class ReportsService {
             ],
           }
         : {}),
+      ...(params.segment ? segmentWhere(params.segment, now) : {}),
     };
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.client.findMany({
         where,
         orderBy: { [params.sortBy ?? 'lastVisitAt']: 'desc' },
@@ -58,6 +110,7 @@ export class ReportsService {
           whatsapp: true,
           stamps: true,
           points: true,
+          totalSpent: true,
           lastVisitAt: true,
           createdAt: true,
           _count: { select: { visits: true, redemptions: true } },
@@ -65,6 +118,8 @@ export class ReportsService {
       }),
       this.prisma.client.count({ where }),
     ]);
+
+    const data = rows.map((client) => ({ ...client, segment: computeSegment(client.lastVisitAt, now) }));
 
     return { data, total, page, limit };
   }
@@ -98,6 +153,8 @@ export class ReportsService {
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const SEGMENTS: ClientSegment[] = ['active', 'at_risk', 'dormant', 'lost', 'never'];
 
     const [
       activeClients,
@@ -110,6 +167,9 @@ export class ReportsService {
       totalRedemptionCost,
       pointsLiability,
       topRewardsRaw,
+      segmentCounts,
+      clientsWithRedemptions,
+      lifetimeRevenue,
     ] = await Promise.all([
       this.prisma.client.count({ where: { isDeleted: false } }),
       this.prisma.visit.count({ where: visitWhere }),
@@ -134,6 +194,17 @@ export class ReportsService {
         orderBy: { _count: { rewardId: 'desc' } },
         take: 5,
       }),
+      // Cuántos clientes están activos/en riesgo/dormidos/perdidos — para saber a quién
+      // "atacar" con reactivación en vez de solo ver el promedio de retención.
+      Promise.all(
+        SEGMENTS.map((segment) =>
+          this.prisma.client.count({ where: { isDeleted: false, ...segmentWhere(segment, now) } }),
+        ),
+      ),
+      // Tasa de canje: de los inscritos, ¿cuántos realmente usan sus sellos/puntos?
+      this.prisma.client.count({ where: { isDeleted: false, redemptions: { some: {} } } }),
+      // Valor de vida (L.) generado por toda la base — para medir el ROI real del programa.
+      this.prisma.client.aggregate({ where: { isDeleted: false }, _sum: { totalSpent: true } }),
     ]);
 
     const clientsWithVisits = visitsByClient.length;
@@ -161,6 +232,12 @@ export class ReportsService {
       redemptions: r._count,
     }));
 
+    const clientsBySegment = Object.fromEntries(SEGMENTS.map((segment, i) => [segment, segmentCounts[i]])) as Record<
+      ClientSegment,
+      number
+    >;
+    const redemptionRate = activeClients > 0 ? Math.round((clientsWithRedemptions / activeClients) * 100) : 0;
+
     return {
       activeClients,
       totalVisits,
@@ -174,6 +251,9 @@ export class ReportsService {
       totalRedemptionCost,
       pointsOutstanding: pointsLiability._sum.points ?? 0,
       stampsOutstanding: pointsLiability._sum.stamps ?? 0,
+      clientsBySegment,
+      redemptionRate,
+      lifetimeRevenue: Number(lifetimeRevenue._sum.totalSpent ?? 0),
     };
   }
 

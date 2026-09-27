@@ -90,6 +90,9 @@ model Client {
   consentAt     DateTime      @default(now())
   stamps        Int           @default(0)
   points        Int           @default(0)
+  /// Suma de lo gastado (L.) en todas sus visitas — para saber quién genera más ingresos,
+  /// no solo quién viene más seguido (lifetime value).
+  totalSpent    Decimal       @default(0) @db.Decimal(12, 2)
   lastVisitAt   DateTime?
   isDeleted     Boolean       @default(false)
   createdAt     DateTime      @default(now())

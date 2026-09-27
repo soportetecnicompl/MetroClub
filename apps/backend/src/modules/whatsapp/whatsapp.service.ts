@@ -43,13 +43,27 @@ export class WhatsappService {
 
   /**
    * RF-12: detecta clientes inactivos en los umbrales de win-back. Se ejecuta
-   * vía Vercel Cron (ver vercel.json) contra InternalCronController.
+   * vía Vercel Cron (ver vercel.json) contra InternalCronController — una vez al
+   * día, por eso se busca "exactamente" ese umbral (no >=) para no reencolar el
+   * mismo mensaje al mismo cliente en corridas futuras.
    */
   async sendWinBackCampaigns() {
     for (const days of WIN_BACK_THRESHOLDS_DAYS) {
-      // TODO: consultar clientes cuyo lastVisitAt cumple exactamente `days` de inactividad
-      // y encolar plantilla 'win_back' correspondiente.
-      this.logger.debug(`Job de win-back (${days} días) ejecutado`);
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      dayStart.setDate(dayStart.getDate() - days);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      const clients = await this.prisma.client.findMany({
+        where: { isDeleted: false, lastVisitAt: { gte: dayStart, lt: dayEnd } },
+        select: { id: true },
+      });
+
+      for (const client of clients) {
+        await this.queueMessage(client.id, WhatsAppMessageType.WIN_BACK, 'win_back');
+      }
+
+      this.logger.debug(`Job de win-back (${days} días): ${clients.length} cliente(s) encolado(s)`);
     }
   }
 }

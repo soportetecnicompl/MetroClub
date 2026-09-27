@@ -76,6 +76,7 @@ describe('ClientsService', () => {
         data: {
           stamps: { increment: 1 },
           points: { increment: 3 },
+          totalSpent: { increment: 35 },
           lastVisitAt: expect.any(Date),
         },
       });

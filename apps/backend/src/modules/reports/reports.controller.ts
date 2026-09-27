@@ -1,6 +1,6 @@
 import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { ReportsService } from './reports.service';
+import { ClientSegment, ReportsService } from './reports.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('reports')
@@ -24,11 +24,13 @@ export class ReportsController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('sortBy') sortBy?: 'stamps' | 'points' | 'lastVisitAt' | 'createdAt',
+    @Query('sortBy') sortBy?: 'stamps' | 'points' | 'lastVisitAt' | 'createdAt' | 'totalSpent',
+    @Query('segment') segment?: ClientSegment,
   ) {
     return this.reportsService.listClients({
       search,
       sortBy,
+      segment,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

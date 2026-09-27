@@ -80,6 +80,7 @@ export class ClientsService {
         data: {
           stamps: { increment: stampsEarned },
           points: { increment: pointsEarned },
+          totalSpent: { increment: dto.amountSpent ?? 0 },
           lastVisitAt: new Date(),
         },
       }),

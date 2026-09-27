@@ -24,8 +24,18 @@ describe('ReportsService', () => {
   });
 
   describe('getDashboardSummary', () => {
-    it('calcula retención, promedio de visitas y el costo/pasivo del programa (RF-17)', async () => {
-      prisma.client.count.mockResolvedValueOnce(10).mockResolvedValueOnce(2);
+    it('calcula retención, promedio de visitas, segmentación de la base y el costo/pasivo del programa (RF-17)', async () => {
+      // orden real de las llamadas a client.count: activeClients, newClientsThisMonth,
+      // 5x segmentCounts (active/at_risk/dormant/lost/never), clientsWithRedemptions.
+      prisma.client.count
+        .mockResolvedValueOnce(10)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(4) // active
+        .mockResolvedValueOnce(3) // at_risk
+        .mockResolvedValueOnce(2) // dormant
+        .mockResolvedValueOnce(1) // lost
+        .mockResolvedValueOnce(0) // never
+        .mockResolvedValueOnce(6); // clientsWithRedemptions
       prisma.visit.count.mockResolvedValue(25);
       prisma.redemption.count.mockResolvedValue(4);
       prisma.whatsAppMessage.count.mockResolvedValue(6);
@@ -42,7 +52,9 @@ describe('ReportsService', () => {
         { reward: { monetaryValue: 80 } },
         { reward: { monetaryValue: null } },
       ]);
-      prisma.client.aggregate.mockResolvedValue({ _sum: { points: 340, stamps: 58 } });
+      prisma.client.aggregate
+        .mockResolvedValueOnce({ _sum: { points: 340, stamps: 58 } })
+        .mockResolvedValueOnce({ _sum: { totalSpent: 4500 } });
       prisma.redemption.groupBy.mockResolvedValue([{ rewardId: 'reward-1', _count: 3 }]);
       prisma.reward.findMany.mockResolvedValue([{ id: 'reward-1', name: 'Entrada 2D gratis' }]);
 
@@ -58,17 +70,23 @@ describe('ReportsService', () => {
       expect(result.pointsOutstanding).toBe(340);
       expect(result.stampsOutstanding).toBe(58);
       expect(result.topRewards).toEqual([{ rewardId: 'reward-1', name: 'Entrada 2D gratis', redemptions: 3 }]);
+      // A quién "atacar": segmentación por recencia + qué tanto usan el programa + cuánto genera.
+      expect(result.clientsBySegment).toEqual({ active: 4, at_risk: 3, dormant: 2, lost: 1, never: 0 });
+      expect(result.redemptionRate).toBe(60); // 6 de 10 clientes han canjeado algo
+      expect(result.lifetimeRevenue).toBe(4500);
     });
 
     it('no falla cuando no hay visitas ni canjes registrados', async () => {
-      prisma.client.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+      prisma.client.count.mockResolvedValue(0);
       prisma.visit.count.mockResolvedValue(0);
       prisma.redemption.count.mockResolvedValue(0);
       prisma.whatsAppMessage.count.mockResolvedValue(0);
       prisma.visit.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
       prisma.complex.findMany.mockResolvedValue([]);
       prisma.redemption.findMany.mockResolvedValue([]);
-      prisma.client.aggregate.mockResolvedValue({ _sum: { points: null, stamps: null } });
+      prisma.client.aggregate
+        .mockResolvedValueOnce({ _sum: { points: null, stamps: null } })
+        .mockResolvedValueOnce({ _sum: { totalSpent: null } });
       prisma.redemption.groupBy.mockResolvedValue([]);
       prisma.reward.findMany.mockResolvedValue([]);
 
@@ -79,12 +97,17 @@ describe('ReportsService', () => {
       expect(result.totalRedemptionCost).toBe(0);
       expect(result.pointsOutstanding).toBe(0);
       expect(result.stampsOutstanding).toBe(0);
+      expect(result.redemptionRate).toBe(0);
+      expect(result.lifetimeRevenue).toBe(0);
+      expect(result.clientsBySegment).toEqual({ active: 0, at_risk: 0, dormant: 0, lost: 0, never: 0 });
     });
   });
 
   describe('listClients', () => {
-    it('pagina y busca por nombre/whatsapp', async () => {
-      prisma.client.findMany.mockResolvedValue([{ id: 'client-1', name: 'Ana', stamps: 3, points: 40 }]);
+    it('pagina, busca por nombre/whatsapp y etiqueta el segmento de recencia de cada cliente', async () => {
+      prisma.client.findMany.mockResolvedValue([
+        { id: 'client-1', name: 'Ana', stamps: 3, points: 40, totalSpent: 150, lastVisitAt: null },
+      ]);
       prisma.client.count.mockResolvedValue(1);
 
       const result = await service.listClients({ search: 'Ana', page: 2, limit: 10 });
@@ -92,7 +115,25 @@ describe('ReportsService', () => {
       expect(prisma.client.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 10, take: 10 }),
       );
-      expect(result).toEqual({ data: [{ id: 'client-1', name: 'Ana', stamps: 3, points: 40 }], total: 1, page: 2, limit: 10 });
+      expect(result).toEqual({
+        data: [{ id: 'client-1', name: 'Ana', stamps: 3, points: 40, totalSpent: 150, lastVisitAt: null, segment: 'never' }],
+        total: 1,
+        page: 2,
+        limit: 10,
+      });
+    });
+
+    it('filtra por segmento (p. ej. "at_risk" para saber a quién reactivar)', async () => {
+      prisma.client.findMany.mockResolvedValue([]);
+      prisma.client.count.mockResolvedValue(0);
+
+      await service.listClients({ segment: 'at_risk' });
+
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ lastVisitAt: expect.objectContaining({ lt: expect.any(Date), gte: expect.any(Date) }) }),
+        }),
+      );
     });
   });
 

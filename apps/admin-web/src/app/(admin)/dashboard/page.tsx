@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { authFetch, describeError } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 
@@ -16,6 +17,14 @@ interface TopReward {
   redemptions: number;
 }
 
+interface ClientsBySegment {
+  active: number;
+  at_risk: number;
+  dormant: number;
+  lost: number;
+  never: number;
+}
+
 interface DashboardSummary {
   activeClients: number;
   totalVisits: number;
@@ -29,6 +38,9 @@ interface DashboardSummary {
   totalRedemptionCost: number;
   pointsOutstanding: number;
   stampsOutstanding: number;
+  clientsBySegment: ClientsBySegment;
+  redemptionRate: number;
+  lifetimeRevenue: number;
 }
 
 const TILES: { key: keyof DashboardSummary; label: string; format?: (v: number) => string }[] = [
@@ -38,10 +50,20 @@ const TILES: { key: keyof DashboardSummary; label: string; format?: (v: number) 
   { key: 'newClientsThisMonth', label: 'Clientes nuevos (mes)' },
   { key: 'retentionRate', label: 'Tasa de retorno', format: (v) => `${v}%` },
   { key: 'avgVisitsPerClient', label: 'Visitas promedio / cliente' },
-  { key: 'reviewsRequested', label: 'Reseñas solicitadas' },
+  { key: 'redemptionRate', label: 'Tasa de canje', format: (v) => `${v}%` },
+  { key: 'lifetimeRevenue', label: 'Ingresos de la base (L.)', format: (v) => `L. ${v.toFixed(2)}` },
   { key: 'totalRedemptionCost', label: 'Costo del programa (L.)', format: (v) => `L. ${v.toFixed(2)}` },
   { key: 'pointsOutstanding', label: 'Puntos sin canjear' },
   { key: 'stampsOutstanding', label: 'Sellos sin canjear' },
+  { key: 'reviewsRequested', label: 'Reseñas solicitadas' },
+];
+
+const SEGMENT_TILES: { key: keyof ClientsBySegment; label: string; hint: string; color: string }[] = [
+  { key: 'active', label: 'Activos', hint: '≤30 días — premiar/retener', color: 'var(--success-150)' },
+  { key: 'at_risk', label: 'En riesgo', hint: '31-60 días — reactivar ya', color: '#8a6d1a' },
+  { key: 'dormant', label: 'Dormidos', hint: '61-90 días — win-back', color: '#a04a00' },
+  { key: 'lost', label: 'Perdidos', hint: '90+ días — campaña agresiva', color: '#a01e1e' },
+  { key: 'never', label: 'Nunca visitaron', hint: 'se enrolaron pero no volvieron', color: 'var(--black-40)' },
 ];
 
 export default function DashboardPage() {
@@ -103,6 +125,37 @@ export default function DashboardPage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Clientes por segmento de recencia</span>
+          <span style={{ fontSize: 13, color: 'var(--black-60)' }}>
+            Clic en un segmento para ver esos clientes y enviarles una campaña de WhatsApp.
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          {SEGMENT_TILES.map((tile) => (
+            <Link
+              key={tile.key}
+              href={`/clients?segment=${tile.key}`}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                padding: 14,
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--black-10)',
+                textDecoration: 'none',
+                color: 'inherit',
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: tile.color }}>{tile.label}</span>
+              <span style={{ fontSize: 28, fontWeight: 600 }}>{summary?.clientsBySegment?.[tile.key] ?? '—'}</span>
+              <span style={{ fontSize: 11, color: 'var(--black-60)' }}>{tile.hint}</span>
+            </Link>
+          ))}
+        </div>
       </div>
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
