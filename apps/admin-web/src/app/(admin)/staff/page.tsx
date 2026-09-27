@@ -67,6 +67,15 @@ export default function StaffPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const scanFrameRef = useRef<number | null>(null);
 
+  // El bucle de escaneo (requestAnimationFrame) arranca una sola vez y vive fuera del ciclo
+  // normal de render, así que su closure se queda con el complexId que existía al arrancar.
+  // Este ref siempre tiene el valor más reciente, evitando que el escaneo quede pegado con un
+  // complexId vacío/viejo si /complexes todavía no había respondido cuando arrancó la cámara.
+  const complexIdRef = useRef(complexId);
+  useEffect(() => {
+    complexIdRef.current = complexId;
+  }, [complexId]);
+
   const pushToast = (message: string) => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message }]);
@@ -126,7 +135,8 @@ export default function StaffPage() {
   const handleQrDetected = async (clientId: string) => {
     stopScanning();
 
-    if (!complexId) {
+    const currentComplexId = complexIdRef.current;
+    if (!currentComplexId) {
       pushToast('Todavía se está cargando la lista de complejos — espera un segundo e intenta de nuevo.');
       setTimeout(() => startScanning(), 1200);
       return;
@@ -137,7 +147,7 @@ export default function StaffPage() {
       const found = await authFetch<Client>(`/clients/${clientId}`);
       const updated = await authFetch<Client>(`/clients/${clientId}/visits`, {
         method: 'POST',
-        body: JSON.stringify({ complexId, channel: 'QR' }),
+        body: JSON.stringify({ complexId: currentComplexId, channel: 'QR' }),
       });
       setClient(updated);
       setStep('visit');
