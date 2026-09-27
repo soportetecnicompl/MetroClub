@@ -46,6 +46,49 @@ enum WhatsAppMessageType {
   CAMPAIGN
 }
 
+enum TicketFormat {
+  D2
+  D3
+  VIP
+  SUPER_VIP
+}
+
+/// SCHEDULED = normal. AT_RISK = por debajo del mínimo dentro de la ventana de evaluación
+/// (dispara el aviso de riesgo en la tienda online). CONFIRMED = ya superó el mínimo o pasó
+/// la ventana sin cancelarse — no vuelve a mostrar el aviso. CANCELLED = se canceló/movió.
+enum ShowtimeStatus {
+  SCHEDULED
+  AT_RISK
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum SeatType {
+  STANDARD
+  VIP
+  COMPANION
+}
+
+enum SeatHoldStatus {
+  HELD
+  RELEASED
+  CONVERTED
+}
+
+enum TicketStatus {
+  ISSUED
+  USED
+  CANCELLED
+  REASSIGNED
+}
+
+enum SalesChannel {
+  BOX_OFFICE
+  ONLINE
+  CORPORATE
+}
+
 /// Complejo de cine (sucursal)
 model Complex {
   id        String   @id @default(cuid())
@@ -56,9 +99,13 @@ model Complex {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users        User[]
-  visits       Visit[]
-  redemptions  Redemption[]
+  users       User[]
+  visits      Visit[]
+  redemptions Redemption[]
+  screens     Screen[]
+  priceRules  PriceRule[]
+  showtimes   Showtime[]
+  tickets     Ticket[]
 
   @@map("complexes")
 }
@@ -98,11 +145,12 @@ model Client {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  walletPasses      WalletPass[]
-  visits            Visit[]
-  redemptions       Redemption[]
-  whatsappMessages  WhatsAppMessage[]
-  auditLogs         AuditLog[]
+  walletPasses     WalletPass[]
+  visits           Visit[]
+  redemptions      Redemption[]
+  whatsappMessages WhatsAppMessage[]
+  auditLogs        AuditLog[]
+  tickets          Ticket[]
 
   @@map("clients")
 }
@@ -121,7 +169,7 @@ model WalletPass {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  client                Client                  @relation(fields: [clientId], references: [id])
+  client                   Client                    @relation(fields: [clientId], references: [id])
   appleDeviceRegistrations AppleDeviceRegistration[]
 
   @@map("wallet_passes")
@@ -161,31 +209,31 @@ model Visit {
 
 /// Regla de lealtad configurable (sellos por visita, puntos por gasto)
 model LoyaltyRule {
-  id                  String   @id @default(cuid())
-  name                String
-  stampsPerVisit      Int      @default(1)
-  pointsPerCurrency   Decimal  @default(0) @db.Decimal(10, 2)
-  currencyUnit        Decimal  @default(10) @db.Decimal(10, 2)
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String   @id @default(cuid())
+  name              String
+  stampsPerVisit    Int      @default(1)
+  pointsPerCurrency Decimal  @default(0) @db.Decimal(10, 2)
+  currencyUnit      Decimal  @default(10) @db.Decimal(10, 2)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@map("loyalty_rules")
 }
 
 /// Premio canjeable por sellos/puntos
 model Reward {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
   description   String?
   stampsCost    Int?
   pointsCost    Int?
   /// Valor en Lempiras del premio (p. ej. el precio de la entrada) — usado para decirle al
   /// cliente cuánto se ahorró al canjearlo (notificación de Wallet). Opcional.
-  monetaryValue Decimal?     @db.Decimal(10, 2)
-  isActive      Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  monetaryValue Decimal? @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   redemptions Redemption[]
 
@@ -194,17 +242,17 @@ model Reward {
 
 /// Canje de un premio por parte de un cliente
 model Redemption {
-  id        String           @id @default(cuid())
-  clientId  String
-  rewardId  String
-  complexId String?
-  status    RedemptionStatus @default(PENDING)
-  createdAt DateTime         @default(now())
-  redeemedAt DateTime?
+  id               String           @id @default(cuid())
+  clientId         String
+  rewardId         String
+  complexId        String?
+  status           RedemptionStatus @default(PENDING)
+  createdAt        DateTime         @default(now())
+  redeemedAt       DateTime?
   /// Copia del monetaryValue del premio en el momento exacto del canje. Sin esto, si
   /// un admin edita después el precio del premio, TODO el historial de costos (reportes,
   /// ROI) cambiaría retroactivamente para reflejar el precio nuevo — falso e inexacto.
-  costAtRedemption Decimal? @db.Decimal(10, 2)
+  costAtRedemption Decimal?         @db.Decimal(10, 2)
 
   client  Client   @relation(fields: [clientId], references: [id])
   reward  Reward   @relation(fields: [rewardId], references: [id])
@@ -215,14 +263,14 @@ model Redemption {
 
 /// Plantilla aprobada de WhatsApp Business API
 model WhatsAppTemplate {
-  id          String               @id @default(cuid())
-  name        String               @unique
-  type        WhatsAppMessageType
+  id             String              @id @default(cuid())
+  name           String              @unique
+  type           WhatsAppMessageType
   metaTemplateId String?
-  body        String
-  isActive    Boolean              @default(true)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  body           String
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   messages WhatsAppMessage[]
 
@@ -231,13 +279,13 @@ model WhatsAppTemplate {
 
 /// Registro de mensajes de WhatsApp enviados a un cliente
 model WhatsAppMessage {
-  id          String              @id @default(cuid())
-  clientId    String
-  templateId  String
-  type        WhatsAppMessageType
-  status      String              @default("queued")
-  sentAt      DateTime?
-  createdAt   DateTime            @default(now())
+  id         String              @id @default(cuid())
+  clientId   String
+  templateId String
+  type       WhatsAppMessageType
+  status     String              @default("queued")
+  sentAt     DateTime?
+  createdAt  DateTime            @default(now())
 
   client   Client           @relation(fields: [clientId], references: [id])
   template WhatsAppTemplate @relation(fields: [templateId], references: [id])
@@ -258,6 +306,163 @@ model Campaign {
   updatedAt   DateTime       @updatedAt
 
   @@map("campaigns")
+}
+
+/// Película en cartelera
+model Movie {
+  id          String   @id @default(cuid())
+  title       String
+  durationMin Int
+  rating      String?
+  synopsis    String?
+  posterUrl   String?
+  language    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  showtimes Showtime[]
+
+  @@map("movies")
+}
+
+/// Sala de un complejo
+model Screen {
+  id        String   @id @default(cuid())
+  complexId String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  complex   Complex    @relation(fields: [complexId], references: [id])
+  seats     Seat[]
+  showtimes Showtime[]
+
+  @@unique([complexId, name])
+  @@map("screens")
+}
+
+/// Butaca física de una sala
+model Seat {
+  id        String   @id @default(cuid())
+  screenId  String
+  row       String
+  number    Int
+  type      SeatType @default(STANDARD)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  screen    Screen     @relation(fields: [screenId], references: [id])
+  seatHolds SeatHold[]
+  tickets   Ticket[]
+
+  @@unique([screenId, row, number])
+  @@map("seats")
+}
+
+/// Precio vigente por complejo + formato (2D/3D/VIP/Super VIP)
+model PriceRule {
+  id        String       @id @default(cuid())
+  complexId String
+  format    TicketFormat
+  price     Decimal      @db.Decimal(10, 2)
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  complex   Complex    @relation(fields: [complexId], references: [id])
+  showtimes Showtime[]
+
+  @@unique([complexId, format])
+  @@map("price_rules")
+}
+
+/// Función/tanda: película + sala + horario + formato + precio vigente
+model Showtime {
+  id                            String         @id @default(cuid())
+  movieId                       String
+  screenId                      String
+  complexId                     String
+  format                        TicketFormat
+  priceRuleId                   String?
+  startsAt                      DateTime
+  status                        ShowtimeStatus @default(SCHEDULED)
+  /// Mínimo de boletos vendidos requerido para no cancelarse. Null = sin mínimo configurado.
+  minSalesThreshold             Int?
+  /// Cuántos minutos antes de `startsAt` se evalúa el mínimo (ventana de riesgo/cancelación).
+  minSalesDeadlineMinutesBefore Int?
+  cancelledAt                   DateTime?
+  cancelReason                  String?
+  createdAt                     DateTime       @default(now())
+  updatedAt                     DateTime       @updatedAt
+
+  movie     Movie      @relation(fields: [movieId], references: [id])
+  screen    Screen     @relation(fields: [screenId], references: [id])
+  complex   Complex    @relation(fields: [complexId], references: [id])
+  priceRule PriceRule? @relation(fields: [priceRuleId], references: [id])
+  seatHolds SeatHold[]
+  tickets   Ticket[]
+
+  @@index([movieId])
+  @@index([screenId, startsAt])
+  @@index([status, startsAt])
+  @@map("showtimes")
+}
+
+/// Reserva temporal de una butaca mientras se completa una compra (taquilla u online) —
+/// evita que dos canales vendan la misma butaca a la vez. `UPDATE ... WHERE status='HELD'`
+/// es el mismo patrón atómico validado en Boletos-Metrocinemas para el canje de boletos.
+model SeatHold {
+  id         String         @id @default(cuid())
+  showtimeId String
+  seatId     String
+  status     SeatHoldStatus @default(HELD)
+  /// userId del cajero (taquilla) o un identificador de sesión (online).
+  heldBy     String?
+  expiresAt  DateTime
+  createdAt  DateTime       @default(now())
+
+  showtime Showtime @relation(fields: [showtimeId], references: [id])
+  seat     Seat     @relation(fields: [seatId], references: [id])
+
+  @@unique([showtimeId, seatId])
+  @@index([expiresAt])
+  @@map("seat_holds")
+}
+
+/// Boleto emitido para una butaca de una función específica
+model Ticket {
+  id              String       @id @default(cuid())
+  showtimeId      String
+  seatId          String
+  clientId        String?
+  complexId       String
+  price           Decimal      @db.Decimal(10, 2)
+  discountApplied Decimal      @default(0) @db.Decimal(10, 2)
+  channel         SalesChannel
+  status          TicketStatus @default(ISSUED)
+  /// Token opaco+firmado (HMAC) que codifica el QR — se verifica sin necesidad de ir a BD
+  /// antes de decidir si vale la pena consultarla, pero el estado real siempre se valida
+  /// contra este registro (nunca solo contra la firma).
+  qrToken         String       @unique
+  usedAt          DateTime?
+  /// Si esta función se canceló y el cliente ya se reasignó, aquí queda el boleto nuevo.
+  reassignedToId  String?      @unique
+  /// Cuándo aceptó explícitamente comprar una función que aún no alcanzaba el mínimo.
+  riskAcceptedAt  DateTime?
+  createdAt       DateTime     @default(now())
+
+  showtime       Showtime @relation(fields: [showtimeId], references: [id])
+  seat           Seat     @relation(fields: [seatId], references: [id])
+  client         Client?  @relation(fields: [clientId], references: [id])
+  complex        Complex  @relation(fields: [complexId], references: [id])
+  reassignedTo   Ticket?  @relation("TicketReassignment", fields: [reassignedToId], references: [id])
+  reassignedFrom Ticket?  @relation("TicketReassignment")
+
+  @@index([showtimeId])
+  @@index([clientId])
+  @@map("tickets")
 }
 
 /// Log de auditoría (incluye derecho al olvido / bajas de clientes)
