@@ -71,6 +71,19 @@ interface ScannedTicket {
   client: { name: string } | null;
 }
 
+interface Product {
+  id: string;
+  complexId: string;
+  name: string;
+  price: string;
+}
+
+interface ConcessionSale {
+  id: string;
+  total: string;
+  items: { productId: string; quantity: number; unitPrice: string; product: { name: string } }[];
+}
+
 function QrCanvas({ value }: { value: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -84,7 +97,7 @@ function QrCanvas({ value }: { value: string }) {
 }
 
 export default function BoxOfficePage() {
-  const [mode, setMode] = useState<'sell' | 'scan'>('sell');
+  const [mode, setMode] = useState<'sell' | 'scan' | 'concessions'>('sell');
 
   const [complexes, setComplexes] = useState<Complex[]>([]);
   const [complexId, setComplexId] = useState('');
@@ -229,6 +242,12 @@ export default function BoxOfficePage() {
           <button className={mode === 'scan' ? 'btn-primary' : 'btn-secondary'} onClick={() => setMode('scan')}>
             Escanear boleto
           </button>
+          <button
+            className={mode === 'concessions' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setMode('concessions')}
+          >
+            Confitería
+          </button>
         </div>
       </div>
 
@@ -236,6 +255,8 @@ export default function BoxOfficePage() {
 
       {mode === 'scan' ? (
         <ScanTickets />
+      ) : mode === 'concessions' ? (
+        <SellConcessions complexId={complexId} complexes={complexes} onComplexChange={setComplexId} />
       ) : (
         <>
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -485,6 +506,186 @@ function ScanTickets() {
           <p style={{ margin: '8px 0 0', fontWeight: 700 }}>✅ Acceso válido</p>
           <button className="btn-secondary" style={{ marginTop: 10 }} onClick={start}>
             Escanear otro
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SellConcessions({
+  complexId,
+  complexes,
+  onComplexChange,
+}: {
+  complexId: string;
+  complexes: Complex[];
+  onComplexChange: (id: string) => void;
+}) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [whatsapp, setWhatsapp] = useState('');
+  const [client, setClient] = useState<Client | null>(null);
+  const [sale, setSale] = useState<ConcessionSale | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!complexId) return;
+    authFetch<Product[]>(`/concessions/products?complexId=${complexId}`)
+      .then(setProducts)
+      .catch((err) => setError(describeError(err, 'No se pudieron cargar los productos')));
+  }, [complexId]);
+
+  const lookupClient = async () => {
+    setError(null);
+    try {
+      const found = await authFetch<Client | null>(`/clients/lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
+      setClient(found);
+      if (!found) setError('No se encontró ningún cliente MetroClub con ese WhatsApp');
+    } catch (err) {
+      setError(describeError(err, 'No se pudo buscar al cliente'));
+    }
+  };
+
+  const addToCart = (productId: string) => setCart((c) => ({ ...c, [productId]: (c[productId] ?? 0) + 1 }));
+  const removeFromCart = (productId: string) =>
+    setCart((c) => {
+      const next = { ...c };
+      if (next[productId] > 1) next[productId] -= 1;
+      else delete next[productId];
+      return next;
+    });
+
+  const cartEntries = Object.entries(cart);
+  const cartTotal = cartEntries.reduce((sum, [productId, qty]) => {
+    const product = products.find((p) => p.id === productId);
+    return sum + (product ? Number(product.price) * qty : 0);
+  }, 0);
+
+  const confirmSale = async () => {
+    if (cartEntries.length === 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await authFetch<ConcessionSale>('/concessions/sales', {
+        method: 'POST',
+        body: JSON.stringify({
+          complexId,
+          clientId: client?.id,
+          channel: 'BOX_OFFICE',
+          items: cartEntries.map(([productId, quantity]) => ({ productId, quantity })),
+        }),
+      });
+      setSale(result);
+      setCart({});
+    } catch (err) {
+      setError(describeError(err, 'No se pudo confirmar la venta'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => {
+    setSale(null);
+    setClient(null);
+    setWhatsapp('');
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ display: 'flex', gap: 8 }}>
+        <select value={complexId} onChange={(e) => onComplexChange(e.target.value)}>
+          {complexes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} — {c.city}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+
+      {!sale ? (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Productos</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {products.map((p) => (
+              <button key={p.id} className="btn-secondary" onClick={() => addToCart(p.id)}>
+                {p.name} — L. {Number(p.price).toFixed(2)}
+              </button>
+            ))}
+            {products.length === 0 && (
+              <span style={{ color: 'var(--black-60)' }}>No hay productos configurados para este complejo.</span>
+            )}
+          </div>
+
+          {cartEntries.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Cantidad</th>
+                  <th>Subtotal</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cartEntries.map(([productId, qty]) => {
+                  const product = products.find((p) => p.id === productId);
+                  return (
+                    <tr key={productId}>
+                      <td>{product?.name ?? '—'}</td>
+                      <td>{qty}</td>
+                      <td>L. {(Number(product?.price ?? 0) * qty).toFixed(2)}</td>
+                      <td>
+                        <button className="btn-secondary" onClick={() => removeFromCart(productId)}>
+                          Quitar uno
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              placeholder="WhatsApp del cliente MetroClub (opcional)"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              style={{ minWidth: 220 }}
+            />
+            <button className="btn-secondary" onClick={lookupClient}>
+              Identificar cliente
+            </button>
+            {client && (
+              <span className="badge" style={{ background: 'var(--success-10)', color: 'var(--success-150)' }}>
+                {client.name}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>Total: L. {cartTotal.toFixed(2)}</span>
+            <button className="btn-primary" disabled={cartEntries.length === 0 || loading} onClick={confirmSale}>
+              {loading ? 'Cobrando…' : 'Cobrar'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Venta confirmada — Total L. {Number(sale.total).toFixed(2)}</span>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {sale.items.map((item, index) => (
+              <li key={index}>
+                {item.quantity} × {item.product.name} — L. {Number(item.unitPrice).toFixed(2)} c/u
+              </li>
+            ))}
+          </ul>
+          <button className="btn-secondary" onClick={reset}>
+            Nueva venta
           </button>
         </div>
       )}
