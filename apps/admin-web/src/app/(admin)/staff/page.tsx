@@ -25,7 +25,23 @@ interface Reward {
   pointsCost: number | null;
 }
 
+interface Toast {
+  id: number;
+  message: string;
+}
+
 type Step = 'lookup' | 'enroll' | 'visit';
+
+/** Mensaje detallado (incluye el status HTTP cuando viene de la API) en vez del genérico "Internal server error". */
+function describeError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    return `${fallback} — Error ${err.status}: ${err.message}`;
+  }
+  if (err instanceof Error) {
+    return `${fallback} — ${err.message}`;
+  }
+  return fallback;
+}
 
 export default function StaffPage() {
   const [step, setStep] = useState<Step>('lookup');
@@ -42,14 +58,22 @@ export default function StaffPage() {
   const [amountSpent, setAmountSpent] = useState('');
   const [visitMessage, setVisitMessage] = useState<string | null>(null);
 
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'starting' | 'active' | 'error'>('idle');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanFrameRef = useRef<number | null>(null);
+
+  const pushToast = (message: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 8000);
+  };
+
+  const dismissToast = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
   useEffect(() => {
     authFetch<Complex[]>('/complexes')
@@ -63,7 +87,6 @@ export default function StaffPage() {
 
   const handleLookup = async (event: FormEvent) => {
     event.preventDefault();
-    setError(null);
     setLoading(true);
     try {
       const found = await authFetch<Client | null>(`/clients/lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
@@ -74,7 +97,7 @@ export default function StaffPage() {
         setStep('enroll');
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo buscar al cliente');
+      pushToast(describeError(err, 'No se pudo buscar al cliente'));
     } finally {
       setLoading(false);
     }
@@ -90,7 +113,13 @@ export default function StaffPage() {
 
   const handleQrDetected = async (clientId: string) => {
     stopScanning();
-    setError(null);
+
+    if (!complexId) {
+      pushToast('Todavía se está cargando la lista de complejos — espera un segundo e intenta de nuevo.');
+      setTimeout(() => startScanning(), 1200);
+      return;
+    }
+
     setLoading(true);
     try {
       const found = await authFetch<Client>(`/clients/${clientId}`);
@@ -105,7 +134,7 @@ export default function StaffPage() {
       );
       setTimeout(() => reset(), 4000);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo procesar el QR escaneado');
+      pushToast(describeError(err, 'No se pudo procesar el QR escaneado'));
       // Seguimos en el paso de búsqueda (el step no cambió), así que hay que reiniciar la
       // cámara a mano: el efecto atado a `step` no se vuelve a disparar solo.
       setTimeout(() => startScanning(), 2000);
@@ -116,7 +145,6 @@ export default function StaffPage() {
 
   const startScanning = async () => {
     if (streamRef.current) return; // ya está corriendo
-    setError(null);
     setCameraStatus('starting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -150,8 +178,8 @@ export default function StaffPage() {
         scanFrameRef.current = requestAnimationFrame(tick);
       };
       scanFrameRef.current = requestAnimationFrame(tick);
-    } catch {
-      setError('No se pudo acceder a la cámara. Revisa los permisos del navegador.');
+    } catch (err) {
+      pushToast(describeError(err, 'No se pudo acceder a la cámara. Revisa los permisos del navegador.'));
       setCameraStatus('error');
     }
   };
@@ -169,7 +197,6 @@ export default function StaffPage() {
 
   const handleEnroll = async (event: FormEvent) => {
     event.preventDefault();
-    setError(null);
     setLoading(true);
     try {
       const created = await authFetch<Client>('/clients/enroll', {
@@ -179,7 +206,7 @@ export default function StaffPage() {
       setClient(created);
       setStep('visit');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo enrolar al cliente');
+      pushToast(describeError(err, 'No se pudo enrolar al cliente'));
     } finally {
       setLoading(false);
     }
@@ -187,7 +214,6 @@ export default function StaffPage() {
 
   const handleConfirmVisit = async () => {
     if (!client) return;
-    setError(null);
     setLoading(true);
     try {
       const updated = await authFetch<Client>(`/clients/${client.id}/visits`, {
@@ -197,7 +223,7 @@ export default function StaffPage() {
       setClient(updated);
       setVisitMessage('+1 sello agregado. Wallet pass actualizado en tiempo real (RF-05).');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo registrar la visita');
+      pushToast(describeError(err, 'No se pudo registrar la visita'));
     } finally {
       setLoading(false);
     }
@@ -205,7 +231,6 @@ export default function StaffPage() {
 
   const handleRedeem = async (rewardId: string) => {
     if (!client) return;
-    setError(null);
     try {
       await authFetch('/loyalty/redemptions', {
         method: 'POST',
@@ -215,7 +240,7 @@ export default function StaffPage() {
       const refreshed = await authFetch<Client | null>(`/clients/lookup?whatsapp=${encodeURIComponent(client.whatsapp)}`);
       if (refreshed) setClient(refreshed);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo canjear el premio');
+      pushToast(describeError(err, 'No se pudo canjear el premio'));
     }
   };
 
@@ -229,7 +254,6 @@ export default function StaffPage() {
     setConsent(false);
     setAmountSpent('');
     setVisitMessage(null);
-    setError(null);
   };
 
   return (
@@ -239,7 +263,43 @@ export default function StaffPage() {
         <h1>Enrolamiento y sellado</h1>
       </div>
 
-      {error && <p className="error-text">{error}</p>}
+      <div
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          maxWidth: 340,
+        }}
+      >
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className="card"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+              padding: '12px 14px',
+              borderLeft: '4px solid var(--error-150, #e5484d)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+            }}
+          >
+            <span style={{ fontSize: 13, lineHeight: 1.4, flex: 1 }}>{toast.message}</span>
+            <button
+              type="button"
+              onClick={() => dismissToast(toast.id)}
+              aria-label="Cerrar"
+              style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--black-60)' }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
 
       {step === 'lookup' && (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

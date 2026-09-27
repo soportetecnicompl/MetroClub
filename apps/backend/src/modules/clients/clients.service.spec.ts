@@ -1,10 +1,11 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClientsService } from './clients.service';
 
 describe('ClientsService', () => {
   let service: ClientsService;
   let prisma: {
     client: { findUnique: jest.Mock; create: jest.Mock; update: jest.Mock };
+    complex: { findUnique: jest.Mock };
     visit: { create: jest.Mock };
     redemption: { findMany: jest.Mock };
     whatsAppMessage: { findMany: jest.Mock };
@@ -17,6 +18,7 @@ describe('ClientsService', () => {
   beforeEach(() => {
     prisma = {
       client: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+      complex: { findUnique: jest.fn().mockResolvedValue({ id: 'complex-1' }) },
       visit: { create: jest.fn() },
       redemption: { findMany: jest.fn() },
       whatsAppMessage: { findMany: jest.fn() },
@@ -88,6 +90,13 @@ describe('ClientsService', () => {
       await expect(service.registerVisit('client-x', { complexId: 'complex-1' })).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+
+    it('lanza BadRequestException con mensaje claro si el complejo no es válido (en vez de un 500 genérico)', async () => {
+      prisma.client.findUnique.mockResolvedValue({ id: 'client-1', isDeleted: false });
+      prisma.complex.findUnique.mockResolvedValue(null);
+
+      await expect(service.registerVisit('client-1', { complexId: '' })).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

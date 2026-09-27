@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -55,6 +55,11 @@ export class ClientsService {
     const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client || client.isDeleted) {
       throw new NotFoundException('Cliente no encontrado');
+    }
+
+    const complex = await this.prisma.complex.findUnique({ where: { id: dto.complexId } });
+    if (!complex) {
+      throw new BadRequestException(`Complejo "${dto.complexId}" no válido o no seleccionado`);
     }
 
     const { stampsEarned, pointsEarned } = await this.loyaltyService.calculateEarnings(dto.amountSpent ?? 0);
