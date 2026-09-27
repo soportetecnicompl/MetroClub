@@ -12,6 +12,7 @@
   ],
   "crons": [
     { "path": "/api/internal/cron/birthday-greetings", "schedule": "0 15 * * *" },
-    { "path": "/api/internal/cron/win-back-campaigns", "schedule": "0 16 * * *" }
+    { "path": "/api/internal/cron/win-back-campaigns", "schedule": "0 16 * * *" },
+    { "path": "/api/internal/cron/release-expired-holds", "schedule": "*/10 * * * *" }
   ]
 }
