@@ -154,7 +154,9 @@ export default function StaffPage() {
       setVisitMessage(
         `+1 sello agregado por QR (antes: ${found.stamps}). Wallet pass actualizado en tiempo real (RF-05).`,
       );
-      setTimeout(() => reset(), 4000);
+      // Se queda en esta pantalla (canjear premio, ver tarjeta, etc.) hasta que el staff
+      // le dé clic a "Buscar otro cliente" — antes se borraba sola a los 4s sin dar tiempo
+      // a interactuar con los botones.
     } catch (err) {
       pushToast(describeError(err, 'No se pudo procesar el QR escaneado'));
       // Seguimos en el paso de búsqueda (el step no cambió), así que hay que reiniciar la
