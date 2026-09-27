@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/staff', label: 'Staff' },
   { href: '/box-office', label: 'Taquilla' },
+  { href: '/sales', label: 'Ventas' },
   { href: '/catalog', label: 'Cartelera' },
   { href: '/promotions', label: 'Promociones' },
   { href: '/inventory', label: 'Confitería' },

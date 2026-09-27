@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { BoxOfficeService } from './box-office.service';
 import { HoldSeatDto } from './dto/hold-seat.dto';
@@ -33,5 +33,18 @@ export class BoxOfficeController {
   @Post('tickets/scan')
   scanTicket(@Body() dto: ScanTicketDto) {
     return this.boxOfficeService.scanTicket(dto.qrToken);
+  }
+
+  @Get('tickets')
+  listTickets(
+    @Query('complexId') complexId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.boxOfficeService.listTickets({
+      complexId,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+    });
   }
 }

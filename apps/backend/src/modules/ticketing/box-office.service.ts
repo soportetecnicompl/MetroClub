@@ -229,4 +229,25 @@ export class BoxOfficeService {
     });
     return { released: result.count };
   }
+
+  /** Historial de boletos vendidos — para la pantalla de ventas realizadas. */
+  listTickets(params: { complexId?: string; from?: Date; to?: Date }) {
+    return this.prisma.ticket.findMany({
+      where: {
+        complexId: params.complexId,
+        createdAt: {
+          gte: params.from,
+          lte: params.to,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        showtime: { include: { movie: true, screen: true } },
+        seat: true,
+        client: true,
+        promotion: true,
+      },
+    });
+  }
 }

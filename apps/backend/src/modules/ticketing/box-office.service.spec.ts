@@ -16,7 +16,14 @@ describe('BoxOfficeService', () => {
     seat: { findMany: jest.Mock };
     seatHold: { create: jest.Mock; updateMany: jest.Mock; findUniqueOrThrow: jest.Mock };
     client: { findUnique: jest.Mock };
-    ticket: { count: jest.Mock; create: jest.Mock; updateMany: jest.Mock; findUnique: jest.Mock; findUniqueOrThrow: jest.Mock };
+    ticket: {
+      count: jest.Mock;
+      create: jest.Mock;
+      updateMany: jest.Mock;
+      findUnique: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+      findMany: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
   let ticketQr: { sign: jest.Mock; verify: jest.Mock };
@@ -28,7 +35,14 @@ describe('BoxOfficeService', () => {
       seat: { findMany: jest.fn() },
       seatHold: { create: jest.fn(), updateMany: jest.fn(), findUniqueOrThrow: jest.fn() },
       client: { findUnique: jest.fn() },
-      ticket: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
+      ticket: {
+        count: jest.fn(),
+        create: jest.fn(),
+        updateMany: jest.fn(),
+        findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
+        findMany: jest.fn(),
+      },
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
     };
     ticketQr = { sign: jest.fn().mockReturnValue('signed-token'), verify: jest.fn() };
@@ -188,6 +202,23 @@ describe('BoxOfficeService', () => {
       prisma.ticket.findUnique.mockResolvedValue(null);
 
       await expect(service.scanTicket('valid-token')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('listTickets', () => {
+    it('filtra por complejo y devuelve lo más reciente primero', async () => {
+      prisma.ticket.findMany.mockResolvedValue([{ id: 'ticket-2' }, { id: 'ticket-1' }]);
+
+      const result = await service.listTickets({ complexId: 'complex-1' });
+
+      expect(prisma.ticket.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ complexId: 'complex-1' }),
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        }),
+      );
+      expect(result).toEqual([{ id: 'ticket-2' }, { id: 'ticket-1' }]);
     });
   });
 });
