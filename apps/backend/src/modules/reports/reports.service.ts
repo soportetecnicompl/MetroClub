@@ -28,6 +28,34 @@ async function sumRedemptionCost(
   return Number(result._sum.costAtRedemption ?? 0);
 }
 
+/**
+ * Reparte 100% entre `values` como enteros que SIEMPRE suman exactamente 100 (método del
+ * mayor resto / Hamilton). Redondear cada porcentaje por separado con Math.round() no
+ * garantiza esto — p. ej. 3 premios con 1/3 del costo cada uno redondean a 33% y suman 99%,
+ * o un reparto de 33/33/34 puede sumar 100 o 101 según el caso. Aquí se asigna primero el
+ * piso de cada uno y el resto de puntos (100 - suma de pisos) se da, de a uno, a quienes
+ * tengan el mayor residuo decimal — así ninguno se aleja más de 1pp de su parte exacta y
+ * el total siempre cierra en 100 (o en 0 si todos los valores son 0).
+ */
+function distributePercentPoints(values: number[]): number[] {
+  const total = values.reduce((sum, v) => sum + v, 0);
+  if (total <= 0) return values.map(() => 0);
+
+  const raw = values.map((v) => (v / total) * 100);
+  const floors = raw.map(Math.floor);
+  const remainders = raw.map((r, i) => ({ i, remainder: r - floors[i] }));
+  let pointsLeft = 100 - floors.reduce((sum, f) => sum + f, 0);
+
+  remainders.sort((a, b) => b.remainder - a.remainder);
+  const result = [...floors];
+  for (const { i } of remainders) {
+    if (pointsLeft <= 0) break;
+    result[i] += 1;
+    pointsLeft -= 1;
+  }
+  return result;
+}
+
 export type ClientSegment = 'active' | 'at_risk' | 'dormant' | 'lost' | 'never';
 
 /**
@@ -383,12 +411,12 @@ export class ReportsService {
     const avgSpendRedeemers = Number(redeemersAgg._avg.totalSpent ?? 0);
     const avgSpendNonRedeemers = Number(nonRedeemersAgg._avg.totalSpent ?? 0);
 
+    // % del costo total del programa que se va en cada premio — repartido para que
+    // siempre sume exactamente 100% entre todos los premios (ver distributePercentPoints).
+    const costShares = distributePercentPoints(rewardStats.map((r) => r.totalCost));
+
     return {
-      rewards: rewardStats.map((r) => ({
-        ...r,
-        // % del costo total del programa que se va en este premio — para saber cuál "pesa" más.
-        costSharePercent: totalCost > 0 ? Math.round((r.totalCost / totalCost) * 100) : 0,
-      })),
+      rewards: rewardStats.map((r, i) => ({ ...r, costSharePercent: costShares[i] })),
       totalCost,
       totalRevenue,
       // Cuánto del ingreso total de la base se está yendo en premios (entre menos, mejor).

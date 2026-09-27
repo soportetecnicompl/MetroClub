@@ -224,6 +224,32 @@ describe('ReportsService', () => {
       // La señal clave: quienes canjean gastan L.600 más en promedio que quienes no.
       expect(result.spendLift).toBe(600);
     });
+
+    it('reparte costSharePercent para que SIEMPRE sume 100%, incluso cuando el redondeo simple no cerraría', async () => {
+      // 3 premios con exactamente 1/3 del costo cada uno: 33.33...% se redondearía a
+      // 33% los tres y sumaría 99%, no 100%. El método del mayor resto le da el punto
+      // extra al primero (todos empatan en el residuo) para cerrar en 100.
+      prisma.reward.findMany.mockResolvedValue([
+        { id: 'reward-1', name: 'Premio A', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 100 },
+        { id: 'reward-2', name: 'Premio B', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 100 },
+        { id: 'reward-3', name: 'Premio C', isActive: true, stampsCost: 5, pointsCost: null, monetaryValue: 100 },
+      ]);
+      prisma.redemption.groupBy.mockResolvedValue([
+        { rewardId: 'reward-1', _count: 1, _sum: { costAtRedemption: 100 } },
+        { rewardId: 'reward-2', _count: 1, _sum: { costAtRedemption: 100 } },
+        { rewardId: 'reward-3', _count: 1, _sum: { costAtRedemption: 100 } },
+      ]);
+      prisma.client.aggregate
+        .mockResolvedValueOnce({ _sum: { totalSpent: 0 } })
+        .mockResolvedValueOnce({ _avg: { totalSpent: 0 }, _count: 0 })
+        .mockResolvedValueOnce({ _avg: { totalSpent: 0 }, _count: 0 });
+
+      const result = await service.getRewardsRoi();
+
+      const shares = result.rewards.map((r) => r.costSharePercent);
+      expect(shares.reduce((sum, p) => sum + p, 0)).toBe(100);
+      expect(shares.sort()).toEqual([33, 33, 34]);
+    });
   });
 
   describe('listRedemptions', () => {
