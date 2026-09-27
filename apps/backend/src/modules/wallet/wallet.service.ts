@@ -85,6 +85,16 @@ export class WalletService {
     await this.prisma.walletPass.updateMany({ where: { clientId }, data: { lastPushedAt: new Date() } });
   }
 
+  /** RF-10: refleja en Wallet el canje de un premio (sellos/puntos descontados) y avisa al cliente. */
+  async pushRedemptionUpdate(clientId: string, rewardName: string) {
+    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+
+    await this.googleWalletService.upsertLoyaltyObject(client);
+    await this.googleWalletService.notifyRedemption(client, rewardName);
+
+    await this.prisma.walletPass.updateMany({ where: { clientId }, data: { lastPushedAt: new Date() } });
+  }
+
   /** Genera el .pkpass real bajo demanda (usado por la descarga y el web service de Apple). */
   async generateApplePassFile(clientId: string) {
     const applePass = await this.prisma.walletPass.findFirst({

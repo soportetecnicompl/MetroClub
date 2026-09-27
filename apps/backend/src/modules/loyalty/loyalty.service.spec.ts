@@ -7,13 +7,15 @@ describe('LoyaltyService', () => {
     loyaltyRule: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
+  let walletService: { pushRedemptionUpdate: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       loyaltyRule: { findFirst: jest.fn() },
       $transaction: jest.fn(),
     };
-    service = new LoyaltyService(prisma as never);
+    walletService = { pushRedemptionUpdate: jest.fn().mockResolvedValue(undefined) };
+    service = new LoyaltyService(prisma as never, walletService as never);
   });
 
   describe('calculateEarnings', () => {
@@ -47,7 +49,10 @@ describe('LoyaltyService', () => {
     });
 
     it('canjea un premio cuando el cliente tiene sellos suficientes (RF-10)', async () => {
-      const tx = buildTx({ stamps: 5, points: 0 }, { id: 'reward-1', stampsCost: 5, pointsCost: null });
+      const tx = buildTx(
+        { stamps: 5, points: 0 },
+        { id: 'reward-1', name: 'Entrada 2D gratis', stampsCost: 5, pointsCost: null },
+      );
       prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
       const result = await service.redeemReward('client-1', 'reward-1');
@@ -57,13 +62,17 @@ describe('LoyaltyService', () => {
         data: { stamps: { decrement: 5 }, points: { decrement: 0 } },
       });
       expect(result).toEqual({ id: 'redemption-1' });
+      // Sin esto el pase de Wallet se queda con los sellos/puntos viejos y el cliente
+      // no tiene forma de saber si el canje se aplicó.
+      expect(walletService.pushRedemptionUpdate).toHaveBeenCalledWith('client-1', 'Entrada 2D gratis');
     });
 
     it('rechaza el canje si el cliente no tiene sellos suficientes', async () => {
-      const tx = buildTx({ stamps: 2, points: 0 }, { id: 'reward-1', stampsCost: 5, pointsCost: null });
+      const tx = buildTx({ stamps: 2, points: 0 }, { id: 'reward-1', name: 'Entrada 2D gratis', stampsCost: 5, pointsCost: null });
       prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(tx));
 
       await expect(service.redeemReward('client-1', 'reward-1')).rejects.toBeInstanceOf(BadRequestException);
+      expect(walletService.pushRedemptionUpdate).not.toHaveBeenCalled();
     });
   });
 });

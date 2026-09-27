@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuth } from 'google-auth-library';
 import * as jwt from 'jsonwebtoken';
@@ -30,6 +30,7 @@ export class GoogleWalletService {
 
   constructor(
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => LoyaltyService))
     private readonly loyaltyService: LoyaltyService,
   ) {}
 
@@ -210,21 +211,34 @@ export class GoogleWalletService {
    * el usuario vuelve a abrir la tarjeta. El endpoint addMessage es el mecanismo que Google
    * expone específicamente para avisar al dispositivo (notificación) de un cambio.
    */
-  async notifyStampAdded(client: Pick<Client, 'id' | 'stamps'>): Promise<void> {
+  private async sendNotification(clientId: string, header: string, body: string): Promise<void> {
     if (!this.isConfigured()) return;
 
-    const objectId = this.objectId(client.id);
-    const progress = await this.buildStampProgress(client.stamps);
-
+    const objectId = this.objectId(clientId);
     await this.request('POST', `loyaltyObject/${objectId}/addMessage`, {
-      message: {
-        header: '¡Nuevo sello en tu MetroClub!',
-        body: progress.rewardName
-          ? `Ya tienes ${client.stamps} sellos → ${progress.rewardName}`
-          : `Ya tienes ${client.stamps} sellos — ¡tienes premios listos para canjear! 🎉`,
-        messageType: 'TEXT',
-      },
+      message: { header, body, messageType: 'TEXT' },
     }).catch((error) => this.logger.warn(`No se pudo enviar la notificación push: ${(error as Error).message}`));
+  }
+
+  async notifyStampAdded(client: Pick<Client, 'id' | 'stamps'>): Promise<void> {
+    if (!this.isConfigured()) return;
+    const progress = await this.buildStampProgress(client.stamps);
+    await this.sendNotification(
+      client.id,
+      '¡Nuevo sello en tu MetroClub!',
+      progress.rewardName
+        ? `Ya tienes ${client.stamps} sellos → ${progress.rewardName}`
+        : `Ya tienes ${client.stamps} sellos — ¡tienes premios listos para canjear! 🎉`,
+    );
+  }
+
+  /** Avisa al cliente que su canje se procesó — sin esto no hay forma de saber si el canje aplicó (RF-10). */
+  async notifyRedemption(client: Pick<Client, 'id' | 'stamps' | 'points'>, rewardName: string): Promise<void> {
+    await this.sendNotification(
+      client.id,
+      '¡Premio canjeado!',
+      `Canjeaste: ${rewardName}. Sellos: ${client.stamps} · Puntos: ${client.points}.`,
+    );
   }
 
   /** Construye el link firmado "Guardar en Google Wallet" (JWT RS256, spec de Google). */

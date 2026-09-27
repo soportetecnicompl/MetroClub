@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { WalletController } from './wallet.controller';
 import { ApplePassService } from './apple/apple-pass.service';
@@ -9,7 +9,7 @@ import { HeroImageService } from './google/hero-image.service';
 import { LoyaltyModule } from '../loyalty/loyalty.module';
 
 @Module({
-  imports: [LoyaltyModule],
+  imports: [forwardRef(() => LoyaltyModule)],
   controllers: [WalletController, AppleWebServiceController],
   providers: [WalletService, ApplePassService, ApplePushService, GoogleWalletService, HeroImageService],
   exports: [WalletService, HeroImageService],

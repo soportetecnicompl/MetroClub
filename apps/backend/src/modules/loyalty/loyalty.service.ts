@@ -1,13 +1,18 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedemptionStatus } from '@prisma/client';
 import { CreateLoyaltyRuleDto } from './dto/create-loyalty-rule.dto';
 import { CreateRewardDto } from './dto/create-reward.dto';
+import { WalletService } from '../wallet/wallet.service';
 
 /** Aplica reglas de lealtad y gestiona premios configurables (RF-06 a RF-10). */
 @Injectable()
 export class LoyaltyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => WalletService))
+    private readonly walletService: WalletService,
+  ) {}
 
   async getActiveRule() {
     const rule = await this.prisma.loyaltyRule.findFirst({
@@ -93,7 +98,7 @@ export class LoyaltyService {
         },
       });
 
-      return tx.redemption.create({
+      const redemption = await tx.redemption.create({
         data: {
           clientId,
           rewardId,
@@ -102,6 +107,13 @@ export class LoyaltyService {
           redeemedAt: new Date(),
         },
       });
+
+      return { redemption, rewardName: reward.name };
+    }).then(async ({ redemption, rewardName }) => {
+      // Sin esto, Google/Apple Wallet nunca se enteran del canje: el pase se queda con los
+      // sellos/puntos viejos para siempre y el cliente no tiene forma de saber si se aplicó.
+      await this.walletService.pushRedemptionUpdate(clientId, rewardName);
+      return redemption;
     });
   }
 }

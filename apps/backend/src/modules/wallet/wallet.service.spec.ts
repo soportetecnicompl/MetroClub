@@ -10,7 +10,12 @@ describe('WalletService', () => {
   };
   let applePassService: { generate: jest.Mock };
   let applePushService: { notifyDevice: jest.Mock };
-  let googleWalletService: { upsertLoyaltyObject: jest.Mock; buildSaveLink: jest.Mock; notifyStampAdded: jest.Mock };
+  let googleWalletService: {
+    upsertLoyaltyObject: jest.Mock;
+    buildSaveLink: jest.Mock;
+    notifyStampAdded: jest.Mock;
+    notifyRedemption: jest.Mock;
+  };
 
   const client = { id: 'client-1', name: 'Ana', stamps: 3, points: 40 };
 
@@ -32,6 +37,7 @@ describe('WalletService', () => {
       upsertLoyaltyObject: jest.fn().mockResolvedValue(null),
       buildSaveLink: jest.fn(),
       notifyStampAdded: jest.fn().mockResolvedValue(undefined),
+      notifyRedemption: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new WalletService(
@@ -116,6 +122,21 @@ describe('WalletService', () => {
       });
 
       delete process.env.APPLE_PASS_TYPE_IDENTIFIER;
+    });
+  });
+
+  describe('pushRedemptionUpdate', () => {
+    it('actualiza el loyaltyObject y notifica el canje al cliente (RF-10)', async () => {
+      prisma.walletPass.updateMany.mockResolvedValue({ count: 2 });
+
+      await service.pushRedemptionUpdate('client-1', 'Entrada 2D gratis');
+
+      expect(googleWalletService.upsertLoyaltyObject).toHaveBeenCalledWith(client);
+      expect(googleWalletService.notifyRedemption).toHaveBeenCalledWith(client, 'Entrada 2D gratis');
+      expect(prisma.walletPass.updateMany).toHaveBeenCalledWith({
+        where: { clientId: 'client-1' },
+        data: { lastPushedAt: expect.any(Date) },
+      });
     });
   });
 

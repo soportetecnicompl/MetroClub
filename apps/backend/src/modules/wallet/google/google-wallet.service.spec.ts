@@ -51,6 +51,12 @@ describe('GoogleWalletService', () => {
     expect(loyaltyService.getStampProgress).not.toHaveBeenCalled();
   });
 
+  it('notifyRedemption() no falla si Google Wallet no está configurado (no envía nada)', async () => {
+    const service = new GoogleWalletService(buildConfig({}) as never, loyaltyService as never);
+
+    await expect(service.notifyRedemption(client, 'Entrada 2D gratis')).resolves.toBeUndefined();
+  });
+
   describe('buildStampProgress (sellos pendientes)', () => {
     type ProgressFn = (
       s: number,
