@@ -20,6 +20,12 @@ export class ClientsController {
     return this.clientsService.enroll(dto);
   }
 
+  /** Usado por el escaneo de QR en el panel de staff: el QR del wallet pass codifica el id del cliente. */
+  @Get(':id')
+  findById(@Param('id') id: string) {
+    return this.clientsService.findById(id);
+  }
+
   @Post(':id/visits')
   registerVisit(@Param('id') id: string, @Body() dto: RegisterVisitDto) {
     return this.clientsService.registerVisit(id, dto);

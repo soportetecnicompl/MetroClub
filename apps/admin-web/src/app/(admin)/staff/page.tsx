@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import jsQR from 'jsqr';
 import { authFetch, ApiError } from '@/lib/api';
 
 interface Complex {
@@ -44,6 +45,12 @@ export default function StaffPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanFrameRef = useRef<number | null>(null);
+
   useEffect(() => {
     authFetch<Complex[]>('/complexes')
       .then((data) => {
@@ -72,6 +79,76 @@ export default function StaffPage() {
       setLoading(false);
     }
   };
+
+  const stopScanning = () => {
+    if (scanFrameRef.current) cancelAnimationFrame(scanFrameRef.current);
+    scanFrameRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setScanning(false);
+  };
+
+  const handleQrDetected = async (clientId: string) => {
+    stopScanning();
+    setError(null);
+    setLoading(true);
+    try {
+      const found = await authFetch<Client>(`/clients/${clientId}`);
+      const updated = await authFetch<Client>(`/clients/${clientId}/visits`, {
+        method: 'POST',
+        body: JSON.stringify({ complexId, channel: 'QR' }),
+      });
+      setClient(updated);
+      setStep('visit');
+      setVisitMessage(
+        `+1 sello agregado por QR (antes: ${found.stamps}). Wallet pass actualizado en tiempo real (RF-05).`,
+      );
+      setTimeout(() => reset(), 4000);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo procesar el QR escaneado');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startScanning = async () => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      setScanning(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      const tick = () => {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code?.data) {
+              handleQrDetected(code.data);
+              return;
+            }
+          }
+        }
+        scanFrameRef.current = requestAnimationFrame(tick);
+      };
+      scanFrameRef.current = requestAnimationFrame(tick);
+    } catch {
+      setError('No se pudo acceder a la cámara. Revisa los permisos del navegador.');
+      setScanning(false);
+    }
+  };
+
+  useEffect(() => stopScanning, []);
 
   const handleEnroll = async (event: FormEvent) => {
     event.preventDefault();
@@ -126,6 +203,7 @@ export default function StaffPage() {
   };
 
   const reset = () => {
+    stopScanning();
     setStep('lookup');
     setClient(null);
     setWhatsapp('');
@@ -147,7 +225,7 @@ export default function StaffPage() {
       {error && <p className="error-text">{error}</p>}
 
       {step === 'lookup' && (
-        <form onSubmit={handleLookup} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div
             style={{
               display: 'flex',
@@ -172,16 +250,70 @@ export default function StaffPage() {
             >
               📶
             </div>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>Acerca el chip NFC, o busca por WhatsApp</span>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>
+              Acerca el celular del cliente por NFC, o escanea el QR de su MetroClub
+            </span>
           </div>
-          <label>
-            WhatsApp del cliente
-            <input required value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+504 9999-9999" />
-          </label>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Buscando…' : 'Buscar cliente'}
-          </button>
-        </form>
+
+          {scanning ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div
+                style={{
+                  position: 'relative',
+                  borderRadius: 'var(--radius-sm)',
+                  overflow: 'hidden',
+                  background: '#000',
+                  aspectRatio: '1 / 1',
+                }}
+              >
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video
+                  ref={videoRef}
+                  muted
+                  playsInline
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    inset: '15%',
+                    border: '3px solid var(--blue-100)',
+                    borderRadius: 12,
+                    boxShadow: '0 0 0 1000px rgba(0,0,0,0.35)',
+                  }}
+                />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+              </div>
+              <span style={{ fontSize: 13, textAlign: 'center', color: 'var(--black-60)' }}>
+                Apunta al código QR de la tarjeta digital del cliente (Google/Apple Wallet)
+              </span>
+              <button type="button" className="btn-secondary" onClick={stopScanning}>
+                Cancelar escaneo
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn-primary" onClick={startScanning} disabled={loading}>
+              📷 Escanear QR del cliente
+            </button>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--black-60)', fontSize: 12 }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--black-10, #eee)' }} />
+            o
+            <div style={{ flex: 1, height: 1, background: 'var(--black-10, #eee)' }} />
+          </div>
+
+          <form onSubmit={handleLookup} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <label>
+              WhatsApp del cliente
+              <input required value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+504 9999-9999" />
+            </label>
+            <button type="submit" className="btn-secondary" disabled={loading}>
+              {loading ? 'Buscando…' : 'Buscar por WhatsApp'}
+            </button>
+          </form>
+        </div>
       )}
 
       {step === 'enroll' && (
