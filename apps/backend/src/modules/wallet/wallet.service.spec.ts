@@ -10,7 +10,7 @@ describe('WalletService', () => {
   };
   let applePassService: { generate: jest.Mock };
   let applePushService: { notifyDevice: jest.Mock };
-  let googleWalletService: { upsertLoyaltyObject: jest.Mock; buildSaveLink: jest.Mock };
+  let googleWalletService: { upsertLoyaltyObject: jest.Mock; buildSaveLink: jest.Mock; notifyStampAdded: jest.Mock };
 
   const client = { id: 'client-1', name: 'Ana', stamps: 3, points: 40 };
 
@@ -28,7 +28,11 @@ describe('WalletService', () => {
     };
     applePassService = { generate: jest.fn() };
     applePushService = { notifyDevice: jest.fn() };
-    googleWalletService = { upsertLoyaltyObject: jest.fn().mockResolvedValue(null), buildSaveLink: jest.fn() };
+    googleWalletService = {
+      upsertLoyaltyObject: jest.fn().mockResolvedValue(null),
+      buildSaveLink: jest.fn(),
+      notifyStampAdded: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new WalletService(
       prisma as never,
@@ -103,6 +107,7 @@ describe('WalletService', () => {
       await service.pushUpdate('client-1');
 
       expect(googleWalletService.upsertLoyaltyObject).toHaveBeenCalledWith(client);
+      expect(googleWalletService.notifyStampAdded).toHaveBeenCalledWith(client);
       expect(applePushService.notifyDevice).toHaveBeenCalledWith('token-1', 'pass.hn.metrocinemas.metroclub');
       expect(applePushService.notifyDevice).toHaveBeenCalledWith('token-2', 'pass.hn.metrocinemas.metroclub');
       expect(prisma.walletPass.updateMany).toHaveBeenCalledWith({

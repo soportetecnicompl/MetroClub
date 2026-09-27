@@ -204,6 +204,29 @@ export class GoogleWalletService {
     return objectId;
   }
 
+  /**
+   * Envía una notificación push real al teléfono (RF-05 "en tiempo real"). Un PATCH normal a
+   * loyaltyObject solo actualiza los datos silenciosamente — el teléfono los ve recién cuando
+   * el usuario vuelve a abrir la tarjeta. El endpoint addMessage es el mecanismo que Google
+   * expone específicamente para avisar al dispositivo (notificación) de un cambio.
+   */
+  async notifyStampAdded(client: Pick<Client, 'id' | 'stamps'>): Promise<void> {
+    if (!this.isConfigured()) return;
+
+    const objectId = this.objectId(client.id);
+    const progress = await this.buildStampProgress(client.stamps);
+
+    await this.request('POST', `loyaltyObject/${objectId}/addMessage`, {
+      message: {
+        header: '¡Nuevo sello en tu MetroClub!',
+        body: progress.rewardName
+          ? `Ya tienes ${client.stamps} sellos → ${progress.rewardName}`
+          : `Ya tienes ${client.stamps} sellos — ¡tienes premios listos para canjear! 🎉`,
+        messageType: 'TEXT',
+      },
+    }).catch((error) => this.logger.warn(`No se pudo enviar la notificación push: ${(error as Error).message}`));
+  }
+
   /** Construye el link firmado "Guardar en Google Wallet" (JWT RS256, spec de Google). */
   buildSaveLink(objectId: string): string | null {
     if (!this.isConfigured()) return null;

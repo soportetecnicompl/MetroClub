@@ -67,6 +67,7 @@ export class WalletService {
     });
 
     await this.googleWalletService.upsertLoyaltyObject(client);
+    await this.googleWalletService.notifyStampAdded(client);
 
     const applePass = passes.find((p) => p.platform === WalletPlatform.APPLE);
     if (applePass) {
