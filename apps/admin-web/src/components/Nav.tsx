@@ -7,6 +7,7 @@ import { clearSession, getUser } from '@/lib/auth';
 const LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/staff', label: 'Staff' },
+  { href: '/box-office', label: 'Taquilla' },
   { href: '/clients', label: 'Clientes' },
   { href: '/redemptions', label: 'Canjes' },
   { href: '/roi', label: 'ROI de premios' },
