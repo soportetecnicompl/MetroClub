@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { clearSession, getToken } from './auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api';
 
@@ -25,13 +25,29 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return res.json();
 }
 
-/** Igual que apiFetch, pero adjunta el token JWT de la sesión actual (RF-16). */
+/**
+ * Igual que apiFetch, pero adjunta el token JWT de la sesión actual (RF-16). Si el backend
+ * responde 401 (token vencido o inválido), en vez de dejar que cada pantalla muestre su
+ * propio "Error 401: Unauthorized" por separado, se limpia la sesión y se manda a /login
+ * una sola vez — el JWT expira a las 8h (JWT_EXPIRES_IN) y antes esto se veía como un error
+ * genérico en cada widget sin ninguna pista de que solo hacía falta iniciar sesión de nuevo.
+ */
 export async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
-  return apiFetch<T>(path, {
-    ...init,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
-  });
+  try {
+    return await apiFetch<T>(path, {
+      ...init,
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401 && typeof window !== 'undefined') {
+      clearSession();
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    throw err;
+  }
 }
 
 /** Da contexto real al error (status + mensaje del backend) en vez de un mensaje genérico. */
