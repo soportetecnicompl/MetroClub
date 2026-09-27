@@ -155,9 +155,9 @@ export default function ClientDetailPage() {
             {(history?.redemptions ?? []).map((redemption) => (
               <tr key={redemption.id}>
                 <td>{new Date(redemption.redeemedAt ?? redemption.createdAt).toLocaleString('es-HN')}</td>
-                <td>{redemption.reward.name}</td>
+                <td>{redemption.reward?.name ?? '—'}</td>
                 <td>
-                  {redemption.reward.monetaryValue ? `L. ${Number(redemption.reward.monetaryValue).toFixed(2)}` : '—'}
+                  {redemption.reward?.monetaryValue ? `L. ${Number(redemption.reward.monetaryValue).toFixed(2)}` : '—'}
                 </td>
                 <td>{redemption.complex?.name ?? '—'}</td>
                 <td>

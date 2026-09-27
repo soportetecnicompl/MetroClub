@@ -73,18 +73,18 @@ export default function RedemptionsPage() {
               <tr key={redemption.id}>
                 <td>{new Date(redemption.createdAt).toLocaleString('es-HN')}</td>
                 <td>
-                  {redemption.client.name}
+                  {redemption.client?.name ?? '—'}
                   <br />
-                  <span style={{ fontSize: 12, color: 'var(--black-60)' }}>{redemption.client.whatsapp}</span>
+                  <span style={{ fontSize: 12, color: 'var(--black-60)' }}>{redemption.client?.whatsapp ?? ''}</span>
                 </td>
-                <td>{redemption.reward.name}</td>
+                <td>{redemption.reward?.name ?? '—'}</td>
                 <td>
-                  {redemption.reward.stampsCost ? `${redemption.reward.stampsCost} sellos` : ''}
-                  {redemption.reward.stampsCost && redemption.reward.pointsCost ? ' · ' : ''}
-                  {redemption.reward.pointsCost ? `${redemption.reward.pointsCost} pts` : ''}
-                  {!redemption.reward.stampsCost && !redemption.reward.pointsCost ? '—' : ''}
+                  {redemption.reward?.stampsCost ? `${redemption.reward.stampsCost} sellos` : ''}
+                  {redemption.reward?.stampsCost && redemption.reward?.pointsCost ? ' · ' : ''}
+                  {redemption.reward?.pointsCost ? `${redemption.reward.pointsCost} pts` : ''}
+                  {!redemption.reward?.stampsCost && !redemption.reward?.pointsCost ? '—' : ''}
                 </td>
-                <td>{redemption.reward.monetaryValue ? `L. ${Number(redemption.reward.monetaryValue).toFixed(2)}` : '—'}</td>
+                <td>{redemption.reward?.monetaryValue ? `L. ${Number(redemption.reward.monetaryValue).toFixed(2)}` : '—'}</td>
                 <td>{redemption.complex?.name ?? '—'}</td>
               </tr>
             ))}
