@@ -44,6 +44,7 @@ enum WhatsAppMessageType {
   WIN_BACK
   BIRTHDAY
   CAMPAIGN
+  SHOWTIME_CANCELLED
 }
 
 enum TicketFormat {
@@ -397,12 +398,13 @@ model Showtime {
   createdAt                     DateTime       @default(now())
   updatedAt                     DateTime       @updatedAt
 
-  movie     Movie      @relation(fields: [movieId], references: [id])
-  screen    Screen     @relation(fields: [screenId], references: [id])
-  complex   Complex    @relation(fields: [complexId], references: [id])
-  priceRule PriceRule? @relation(fields: [priceRuleId], references: [id])
-  seatHolds SeatHold[]
-  tickets   Ticket[]
+  movie                    Movie                     @relation(fields: [movieId], references: [id])
+  screen                   Screen                    @relation(fields: [screenId], references: [id])
+  complex                  Complex                   @relation(fields: [complexId], references: [id])
+  priceRule                PriceRule?                @relation(fields: [priceRuleId], references: [id])
+  seatHolds                SeatHold[]
+  tickets                  Ticket[]
+  suggestedInReassignments TicketReassignmentOffer[]
 
   @@index([movieId])
   @@index([screenId, startsAt])
@@ -453,16 +455,38 @@ model Ticket {
   riskAcceptedAt  DateTime?
   createdAt       DateTime     @default(now())
 
-  showtime       Showtime @relation(fields: [showtimeId], references: [id])
-  seat           Seat     @relation(fields: [seatId], references: [id])
-  client         Client?  @relation(fields: [clientId], references: [id])
-  complex        Complex  @relation(fields: [complexId], references: [id])
-  reassignedTo   Ticket?  @relation("TicketReassignment", fields: [reassignedToId], references: [id])
-  reassignedFrom Ticket?  @relation("TicketReassignment")
+  showtime          Showtime                 @relation(fields: [showtimeId], references: [id])
+  seat              Seat                     @relation(fields: [seatId], references: [id])
+  client            Client?                  @relation(fields: [clientId], references: [id])
+  complex           Complex                  @relation(fields: [complexId], references: [id])
+  reassignedTo      Ticket?                  @relation("TicketReassignment", fields: [reassignedToId], references: [id])
+  reassignedFrom    Ticket?                  @relation("TicketReassignment")
+  reassignmentOffer TicketReassignmentOffer?
 
   @@index([showtimeId])
   @@index([clientId])
   @@map("tickets")
+}
+
+/// Cuando una función se cancela, cada boleto B2C afectado recibe un código propio para
+/// que el cliente entre y seleccione nuevos asientos en otra función — Metro Cinemas no
+/// hace devoluciones en efectivo, así que esta es la única resolución posible.
+model TicketReassignmentOffer {
+  id                  String    @id @default(cuid())
+  ticketId            String    @unique
+  /// Código corto que el cliente usa en el enlace público de reasignación.
+  code                String    @unique
+  /// Función de la misma película sugerida automáticamente al cancelar (la más próxima
+  /// disponible) — el cliente puede aceptarla o elegir otra al entrar al enlace.
+  suggestedShowtimeId String?
+  expiresAt           DateTime
+  redeemedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  ticket            Ticket    @relation(fields: [ticketId], references: [id])
+  suggestedShowtime Showtime? @relation(fields: [suggestedShowtimeId], references: [id])
+
+  @@map("ticket_reassignment_offers")
 }
 
 /// Log de auditoría (incluye derecho al olvido / bajas de clientes)
