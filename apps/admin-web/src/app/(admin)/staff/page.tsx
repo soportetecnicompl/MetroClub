@@ -57,6 +57,9 @@ export default function StaffPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [amountSpent, setAmountSpent] = useState('');
   const [visitMessage, setVisitMessage] = useState<string | null>(null);
+  // El escaneo de QR ya registra la visita solo; si además se muestra el botón "Confirmar
+  // visita" en la misma pantalla, un clic de más suma un segundo sello para la misma visita.
+  const [visitAlreadyStamped, setVisitAlreadyStamped] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -113,6 +116,7 @@ export default function StaffPage() {
       const found = await authFetch<Client | null>(`/clients/lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
       if (found) {
         setClient(found);
+        setVisitAlreadyStamped(false);
         setStep('visit');
       } else {
         setStep('enroll');
@@ -150,6 +154,7 @@ export default function StaffPage() {
         body: JSON.stringify({ complexId: currentComplexId, channel: 'QR' }),
       });
       setClient(updated);
+      setVisitAlreadyStamped(true);
       setStep('visit');
       setVisitMessage(
         `+1 sello agregado por QR (antes: ${found.stamps}). Wallet pass actualizado en tiempo real (RF-05).`,
@@ -228,6 +233,7 @@ export default function StaffPage() {
         body: JSON.stringify({ name, whatsapp, birthDate: birthDate || undefined }),
       });
       setClient(created);
+      setVisitAlreadyStamped(false);
       setStep('visit');
     } catch (err) {
       pushToast(describeError(err, 'No se pudo enrolar al cliente'));
@@ -278,6 +284,7 @@ export default function StaffPage() {
     setConsent(false);
     setAmountSpent('');
     setVisitMessage(null);
+    setVisitAlreadyStamped(false);
   };
 
   return (
@@ -517,21 +524,38 @@ export default function StaffPage() {
             </select>
           </label>
 
-          <label>
-            Gasto en confitería (opcional, para puntos RF-07)
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              placeholder="L. 0.00"
-              value={amountSpent}
-              onChange={(e) => setAmountSpent(e.target.value)}
-            />
-          </label>
+          {visitAlreadyStamped ? (
+            <span
+              style={{
+                fontSize: 13,
+                textAlign: 'center',
+                color: 'var(--black-60)',
+                background: 'var(--background-page)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 12px',
+              }}
+            >
+              Esta visita ya quedó registrada por el escaneo de QR — no hace falta confirmarla de nuevo.
+            </span>
+          ) : (
+            <>
+              <label>
+                Gasto en confitería (opcional, para puntos RF-07)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="L. 0.00"
+                  value={amountSpent}
+                  onChange={(e) => setAmountSpent(e.target.value)}
+                />
+              </label>
 
-          <button className="btn-primary" onClick={handleConfirmVisit} disabled={loading || !complexId}>
-            {loading ? 'Confirmando…' : 'Confirmar visita'}
-          </button>
+              <button className="btn-primary" onClick={handleConfirmVisit} disabled={loading || !complexId}>
+                {loading ? 'Confirmando…' : 'Confirmar visita'}
+              </button>
+            </>
+          )}
 
           {rewards.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
