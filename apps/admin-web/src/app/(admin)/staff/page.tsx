@@ -75,14 +75,26 @@ export default function StaffPage() {
 
   const dismissToast = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  useEffect(() => {
+  const loadComplexes = () => {
     authFetch<Complex[]>('/complexes')
       .then((data) => {
         setComplexes(data);
-        if (data[0]) setComplexId(data[0].id);
+        if (data[0]) {
+          setComplexId(data[0].id);
+        } else {
+          pushToast('No hay complejos activos configurados — pide a un admin que cree uno en el panel.');
+        }
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        pushToast(describeError(err, 'No se pudo cargar la lista de complejos, reintentando…'));
+        setTimeout(loadComplexes, 4000);
+      });
+  };
+
+  useEffect(() => {
+    loadComplexes();
     authFetch<Reward[]>('/loyalty/rewards').then(setRewards).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLookup = async (event: FormEvent) => {
