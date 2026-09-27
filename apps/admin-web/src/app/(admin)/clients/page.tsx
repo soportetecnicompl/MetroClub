@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { authFetch } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 
 interface ClientRow {
   id: string;
@@ -43,7 +43,7 @@ export default function ClientsPage() {
     if (search) params.set('search', search);
     authFetch<ClientsPage>(`/reports/clients?${params.toString()}`)
       .then(setResult)
-      .catch(() => setError('No se pudo cargar la lista de clientes'));
+      .catch((err) => setError(describeError(err, 'No se pudo cargar la lista de clientes')));
   }, [search, sortBy, page]);
 
   const totalPages = result ? Math.max(1, Math.ceil(result.total / result.limit)) : 1;

@@ -1,6 +1,8 @@
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { ClientsService } from '../clients/clients.service';
+import { EnrollClientDto } from '../clients/dto/enroll-client.dto';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { WalletService } from '../wallet/wallet.service';
 import { HeroImageService } from '../wallet/google/hero-image.service';
@@ -81,5 +83,17 @@ export class PublicController {
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
     res.setHeader('Content-Disposition', 'attachment; filename="metroclub.pkpass"');
     res.send(buffer);
+  }
+
+  /**
+   * Auto-enrolamiento sin staff de por medio: el cliente escanea un QR fijo en taquilla,
+   * llena su nombre/WhatsApp desde su propio teléfono y recibe el botón de Wallet al toque.
+   * Sin JWT (nadie ha iniciado sesión todavía), por eso el límite de 5 intentos/minuto por IP.
+   */
+  @Post('enroll')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  enroll(@Body() dto: EnrollClientDto) {
+    return this.clientsService.enroll(dto);
   }
 }

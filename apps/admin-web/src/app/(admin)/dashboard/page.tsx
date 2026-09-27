@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { authFetch } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 
 interface TopComplex {
@@ -51,7 +51,7 @@ export default function DashboardPage() {
   useEffect(() => {
     authFetch<DashboardSummary>('/reports/dashboard')
       .then(setSummary)
-      .catch(() => setError('No se pudo cargar el dashboard'));
+      .catch((err) => setError(describeError(err, 'No se pudo cargar el dashboard')));
   }, []);
 
   const handleExport = async () => {

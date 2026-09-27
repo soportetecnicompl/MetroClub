@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import jsQR from 'jsqr';
-import { authFetch, ApiError } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 
 interface Complex {
   id: string;
@@ -31,17 +31,6 @@ interface Toast {
 }
 
 type Step = 'lookup' | 'enroll' | 'visit';
-
-/** Mensaje detallado (incluye el status HTTP cuando viene de la API) en vez del genérico "Internal server error". */
-function describeError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    return `${fallback} — Error ${err.status}: ${err.message}`;
-  }
-  if (err instanceof Error) {
-    return `${fallback} — ${err.message}`;
-  }
-  return fallback;
-}
 
 export default function StaffPage() {
   const [step, setStep] = useState<Step>('lookup');

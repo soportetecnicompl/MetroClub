@@ -33,3 +33,14 @@ export async function authFetch<T>(path: string, init?: RequestInit): Promise<T>
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
   });
 }
+
+/** Da contexto real al error (status + mensaje del backend) en vez de un mensaje genérico. */
+export function describeError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    return `${fallback} — Error ${err.status}: ${err.message}`;
+  }
+  if (err instanceof Error) {
+    return `${fallback} — ${err.message}`;
+  }
+  return fallback;
+}

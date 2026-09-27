@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { authFetch, ApiError } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 
 interface Complex {
   id: string;
@@ -75,7 +75,10 @@ export default function UsersPage() {
     complexId: '',
   });
 
-  const loadUsers = () => authFetch<User[]>('/users').then(setUsers).catch(() => undefined);
+  const loadUsers = () =>
+    authFetch<User[]>('/users')
+      .then(setUsers)
+      .catch((err) => setError(describeError(err, 'No se pudo cargar la lista de usuarios')));
 
   useEffect(() => {
     loadUsers();
@@ -94,18 +97,18 @@ export default function UsersPage() {
       setForm({ name: '', email: '', password: '', role: ROLES[3].value, complexId: '' });
       loadUsers();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo crear el usuario');
+      setError(describeError(err, 'No se pudo crear el usuario'));
     } finally {
       setLoading(false);
     }
   };
 
-  const patchUser = async (id: string, data: { role?: string; complexId?: string; isActive?: boolean }) => {
+  const patchUser = async (id: string, data: { name?: string; role?: string; complexId?: string; isActive?: boolean }) => {
     try {
       await authFetch(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
       loadUsers();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo actualizar el usuario');
+      setError(describeError(err, 'No se pudo actualizar el usuario'));
     }
   };
 
@@ -180,7 +183,17 @@ export default function UsersPage() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
-                <td>{user.name}</td>
+                <td>
+                  <input
+                    defaultValue={user.name}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value && value !== user.name) {
+                        patchUser(user.id, { name: value });
+                      }
+                    }}
+                  />
+                </td>
                 <td>{user.email}</td>
                 <td>
                   <select value={user.role} onChange={(e) => patchUser(user.id, { role: e.target.value })}>

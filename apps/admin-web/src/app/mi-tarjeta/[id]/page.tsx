@@ -18,6 +18,7 @@ interface CardData {
   points: number;
   rewards: RewardProgress[];
   nextReward: { name: string; stampsCost: number | null } | null;
+  googleWalletSaveUrl: string | null;
 }
 
 export default function ClientCardPage() {
@@ -128,6 +129,18 @@ export default function ClientCardPage() {
             </div>
           </div>
         </div>
+
+        {card.googleWalletSaveUrl && (
+          <a
+            href={card.googleWalletSaveUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary"
+            style={{ textAlign: 'center' }}
+          >
+            Agregar a Google Wallet
+          </a>
+        )}
 
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>Tus premios</span>

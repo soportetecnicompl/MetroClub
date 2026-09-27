@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { authFetch, ApiError } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 
 interface Complex {
   id: string;
   name: string;
   city: string;
   address: string | null;
+  isActive: boolean;
 }
 
 export default function ComplexesPage() {
@@ -16,8 +17,13 @@ export default function ComplexesPage() {
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', city: '', address: '' });
 
-  const load = () => authFetch<Complex[]>('/complexes').then(setComplexes).catch(() => undefined);
+  const load = () =>
+    authFetch<Complex[]>('/complexes?includeInactive=true')
+      .then(setComplexes)
+      .catch((err) => setError(describeError(err, 'No se pudo cargar la lista de complejos')));
 
   useEffect(() => {
     load();
@@ -36,7 +42,42 @@ export default function ComplexesPage() {
       setAddress('');
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo crear el complejo');
+      setError(describeError(err, 'No se pudo crear el complejo'));
+    }
+  };
+
+  const startEdit = (complex: Complex) => {
+    setEditingId(complex.id);
+    setEditForm({ name: complex.name, city: complex.city, address: complex.address ?? '' });
+  };
+
+  const cancelEdit = () => setEditingId(null);
+
+  const saveEdit = async (id: string) => {
+    setError(null);
+    try {
+      await authFetch(`/complexes/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editForm.name, city: editForm.city, address: editForm.address || undefined }),
+      });
+      setEditingId(null);
+      load();
+    } catch (err) {
+      setError(describeError(err, 'No se pudo actualizar el complejo'));
+    }
+  };
+
+  const toggleActive = async (complex: Complex) => {
+    setError(null);
+    try {
+      if (complex.isActive) {
+        await authFetch(`/complexes/${complex.id}`, { method: 'DELETE' });
+      } else {
+        await authFetch(`/complexes/${complex.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
+      }
+      load();
+    } catch (err) {
+      setError(describeError(err, 'No se pudo cambiar el estado del complejo'));
     }
   };
 
@@ -61,16 +102,75 @@ export default function ComplexesPage() {
               <th>Nombre</th>
               <th>Ciudad</th>
               <th>Dirección</th>
+              <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {complexes.map((complex) => (
-              <tr key={complex.id}>
-                <td>{complex.name}</td>
-                <td>{complex.city}</td>
-                <td>{complex.address ?? '—'}</td>
-              </tr>
-            ))}
+            {complexes.map((complex) =>
+              editingId === complex.id ? (
+                <tr key={complex.id}>
+                  <td>
+                    <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                  </td>
+                  <td>
+                    <input value={editForm.city} onChange={(e) => setEditForm({ ...editForm, city: e.target.value })} />
+                  </td>
+                  <td>
+                    <input
+                      value={editForm.address}
+                      onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <span
+                      className="badge"
+                      style={
+                        complex.isActive
+                          ? { background: 'var(--success-10)', color: 'var(--success-150)' }
+                          : { background: 'var(--black-10)', color: 'var(--black-40)' }
+                      }
+                    >
+                      {complex.isActive ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  <td style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-primary" style={{ padding: '6px 12px' }} onClick={() => saveEdit(complex.id)}>
+                      Guardar
+                    </button>
+                    <button className="btn-secondary" style={{ padding: '6px 12px' }} onClick={cancelEdit}>
+                      Cancelar
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={complex.id}>
+                  <td>{complex.name}</td>
+                  <td>{complex.city}</td>
+                  <td>{complex.address ?? '—'}</td>
+                  <td>
+                    <span
+                      className="badge"
+                      style={
+                        complex.isActive
+                          ? { background: 'var(--success-10)', color: 'var(--success-150)' }
+                          : { background: 'var(--black-10)', color: 'var(--black-40)' }
+                      }
+                    >
+                      {complex.isActive ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  <td style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-secondary" style={{ padding: '6px 12px' }} onClick={() => startEdit(complex)}>
+                      Editar
+                    </button>
+                    <button className="btn-secondary" style={{ padding: '6px 12px' }} onClick={() => toggleActive(complex)}>
+                      {complex.isActive ? 'Desactivar' : 'Reactivar'}
+                    </button>
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { authFetch } from '@/lib/api';
+import { authFetch, describeError } from '@/lib/api';
 
 interface RedemptionRow {
   id: string;
@@ -29,7 +29,7 @@ export default function RedemptionsPage() {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     authFetch<RedemptionsPage>(`/reports/redemptions?${params.toString()}`)
       .then(setResult)
-      .catch(() => setError('No se pudo cargar el historial de canjes'));
+      .catch((err) => setError(describeError(err, 'No se pudo cargar el historial de canjes')));
   }, [page]);
 
   const totalPages = result ? Math.max(1, Math.ceil(result.total / result.limit)) : 1;

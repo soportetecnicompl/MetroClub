@@ -3,6 +3,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedemptionStatus } from '@prisma/client';
 import { CreateLoyaltyRuleDto } from './dto/create-loyalty-rule.dto';
 import { CreateRewardDto } from './dto/create-reward.dto';
+import { UpdateLoyaltyRuleDto } from './dto/update-loyalty-rule.dto';
+import { UpdateRewardDto } from './dto/update-reward.dto';
 import { WalletService } from '../wallet/wallet.service';
 
 /** Aplica reglas de lealtad y gestiona premios configurables (RF-06 a RF-10). */
@@ -34,8 +36,9 @@ export class LoyaltyService {
     return { stampsEarned: rule.stampsPerVisit, pointsEarned };
   }
 
-  listRewards() {
-    return this.prisma.reward.findMany({ where: { isActive: true } });
+  /** El panel de administración necesita ver también los premios inactivos para poder reactivarlos. */
+  listRewards(includeInactive = false) {
+    return this.prisma.reward.findMany({ where: includeInactive ? {} : { isActive: true } });
   }
 
   /** Progreso de sellos hacia el próximo premio (usado en la tarjeta pública y en Wallet). */
@@ -70,9 +73,36 @@ export class LoyaltyService {
     ]).then(([, rule]) => rule);
   }
 
+  /** Edita una regla existente; si se reactiva, desactiva cualquier otra regla activa. */
+  async updateRule(id: string, dto: UpdateLoyaltyRuleDto) {
+    if (dto.isActive) {
+      return this.prisma
+        .$transaction([
+          this.prisma.loyaltyRule.updateMany({ where: { isActive: true, NOT: { id } }, data: { isActive: false } }),
+          this.prisma.loyaltyRule.update({ where: { id }, data: dto }),
+        ])
+        .then(([, rule]) => rule);
+    }
+    return this.prisma.loyaltyRule.update({ where: { id }, data: dto });
+  }
+
+  /** Baja lógica de una regla (no se borra: queda en el historial de configuración). */
+  deactivateRule(id: string) {
+    return this.prisma.loyaltyRule.update({ where: { id }, data: { isActive: false } });
+  }
+
   /** RF-18: crea un premio canjeable. */
   createReward(dto: CreateRewardDto) {
     return this.prisma.reward.create({ data: dto });
+  }
+
+  updateReward(id: string, dto: UpdateRewardDto) {
+    return this.prisma.reward.update({ where: { id }, data: dto });
+  }
+
+  /** Baja lógica — un premio ya canjeado antes no se puede borrar físicamente (rompería el historial). */
+  deactivateReward(id: string) {
+    return this.prisma.reward.update({ where: { id }, data: { isActive: false } });
   }
 
   /** RF-10: canje de un premio; valida que el cliente tenga sellos/puntos suficientes. */
